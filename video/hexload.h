@@ -3,10 +3,13 @@
 
 #include <stdbool.h>
 #include "CRC16.h"
+#include "CRC32.h"
+
 extern void printFmt(const char *format, ...);
 extern HardwareSerial DBGSerial;
 
 CRC16 ihexcrc(0x8005, 0x0, 0x0, false, false);
+CRC32 crc32;
 
 #define DEF_LOAD_ADDRESS 0x040000
 #define DEF_U_BYTE  ((DEF_LOAD_ADDRESS >> 16) & 0xFF)
@@ -126,6 +129,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 				sendKeycodeByte(bytecount, true);	// number of bytes to send in this package
 				while(bytecount--) {
 					data = getIHexByte();
+					crc32.add(data);
 					sendKeycodeByte(data, false);
 					ihexchecksum += data;			// update ihexchecksum
 					ez80checksum += data;			// update checksum from bytes sent to the ez80
@@ -198,14 +202,14 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 		}
 	}
 
-	uint32_t crc32 = 0x3bffd717;
+	//uint32_t crc32 = 0x3bffd717;
 	if(extendedformat) {
-		writeCRC32(crc32);
+		writeCRC32(crc32.calc());
 		uint8_t data = 0;
 		while(data != 'R') if(DBGSerial.available() > 0) data = DBGSerial.read();
 		while(!DBGSerial.available());
 		uint8_t result = DBGSerial.read();
-		printFmt("\r\n\r\nCRC32 0x%08X - ", crc32);
+		printFmt("\r\n\r\nCRC32 0x%08X - ", crc32.calc());
 		if(result == '1') printFmt("OK\r\n");
 		else printFmt("ERROR\r\n");
 	}
