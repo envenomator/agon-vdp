@@ -111,6 +111,10 @@ void VDUStreamProcessor::vdu_sys() {
 			case 0x1C: {					// VDU 23, 28
 				vdu_sys_hexload();
 			}	break;
+			case 0x1D: {
+				vdu_sys_serialpipe();
+				break;
+			}
 		}
 	}
 	//

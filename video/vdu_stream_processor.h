@@ -100,7 +100,9 @@ class VDUStreamProcessor {
 		void createBitmapFromBuffer(uint16_t bufferId, uint8_t format, uint16_t width, uint16_t height);
 
 		void vdu_sys_hexload(void);
+		void vdu_sys_serialpipe(void);
 		void sendKeycodeByte(uint8_t b, bool waitack);
+		uint8_t getEZ80Byte(void);
 
 		void vdu_sys_buffered();
 		uint32_t bufferWrite(uint16_t bufferId, uint32_t size);

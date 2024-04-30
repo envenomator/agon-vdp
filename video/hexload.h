@@ -41,6 +41,61 @@ void echo_checksum(uint8_t ihexchecksum, uint8_t ez80checksum) {
 	if((ihexchecksum == 0) && (ez80checksum == 0)) printFmt(".");
 }
 
+bool isCommand;
+
+uint8_t VDUStreamProcessor::getEZ80Byte(void) {
+	uint8_t retval = readByte_b();
+	isCommand = false;
+
+	//printFmt("Val0: %d\r\n", retval);
+
+	if(retval == 0) {
+		retval = readByte_b();
+		//printFmt("Val1: %d\r\n", retval);
+		isCommand = (retval != 0);
+	}
+	return retval;
+}
+
+void VDUStreamProcessor::vdu_sys_serialpipe(void) {
+	char buffer[256];
+	char *ptr;
+	bool done = false;
+	uint8_t val;
+
+	printFmt("Started\r\n");
+
+	while(!done) {
+		if(inputStream->available()) {
+			val = getEZ80Byte();
+			//printFmt("Val: %d, cmd: %d\r\n", val, isCommand);
+			if(isCommand) {
+				switch(val) {
+					case 1:
+						done = true;
+						break;
+					case 2:
+						printFmt("%c",val);
+						break;
+					case 3:
+						ptr = buffer;
+						while(*ptr = readByte_b()) ptr++;
+						printFmt(buffer);
+						break;
+					default:
+						break;
+				}
+			}
+			else DBGSerial.write(val);
+		}
+		if(DBGSerial.available()) {
+			val = DBGSerial.read();
+			sendKeycodeByte(val, false);
+		}
+	}
+	printFmt("Stopped\r\n");
+}
+
 void VDUStreamProcessor::vdu_sys_hexload(void) {
 	uint32_t segment_address;
 	uint8_t u,h,l,tmp;
