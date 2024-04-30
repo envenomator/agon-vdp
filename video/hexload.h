@@ -52,6 +52,13 @@ void writeCRC16(uint16_t crc) {
 	DBGSerial.write((uint8_t)(((crc >> 8) & 0xFF)));
 }
 
+void writeCRC32(uint32_t crc) {
+	DBGSerial.write((uint8_t)(crc & 0xFF));
+	DBGSerial.write((uint8_t)(((crc >> 8) & 0xFF)));
+	DBGSerial.write((uint8_t)(((crc >> 16) & 0xFF)));
+	DBGSerial.write((uint8_t)(((crc >> 24) & 0xFF)));
+}
+
 void VDUStreamProcessor::vdu_sys_hexload(void) {
 	uint32_t segment_address;
 	uint8_t u,h,l,tmp;
@@ -190,13 +197,26 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 				break;
 		}
 	}
-	if(errorcount) {
-		printFmt("\r\n%d error(s)\r\n",errorcount);
+
+	uint32_t crc32 = 0x3bffd717;
+	if(extendedformat) {
+		writeCRC32(crc32);
+		uint8_t data = 0;
+		while(data != 'R') if(DBGSerial.available() > 0) data = DBGSerial.read();
+		while(!DBGSerial.available());
+		uint8_t result = DBGSerial.read();
+		printFmt("\r\n\r\nCRC32 0x%08X - ", crc32);
+		if(result == '1') printFmt("OK\r\n");
+		else printFmt("ERROR\r\n");
 	}
 	else {
-		if(rom_area) printFmt("\r\nHEX data overlapping ROM area, transfer unsuccessful\r\nERROR\r\n");
-		else printFmt("\r\nOK\r\n");
+		printFmt("\r\nOK\r\n");
+		if(errorcount) {
+			printFmt("\r\n%d error(s)\r\n",errorcount);
+		}
 	}
+	if(rom_area) printFmt("\r\nHEX data overlapping ROM area, transfer unsuccessful\r\nERROR\r\n");
+
 	printFmt("VDP done\r\n");   
 }
 
