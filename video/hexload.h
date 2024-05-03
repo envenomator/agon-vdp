@@ -66,6 +66,13 @@ uint8_t getIHexByte(bool addcrc) {
 	return value;  
 }
 
+uint16_t getIHexUINT16(bool addcrc) {
+	uint16_t value;
+	value =  ((uint16_t)getIHexByte(addcrc)) << 8;
+	value |= getIHexByte(addcrc);
+	return value;
+}
+
 uint32_t getIHexUINT32(bool addcrc) {
 	uint32_t value;
 	value =  ((uint32_t)getIHexByte(addcrc)) << 24;
@@ -105,7 +112,6 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 	bool 		retransmit;
 	bool 		rom_area;
 	uint16_t 	errorcount;
-	uint8_t 	prevframeid,frameid;
 
 	printFmt("Receiving Intel HEX records - VDP:%d 8N1\r\n\r\n", SERIALBAUDRATE);
 
@@ -120,25 +126,14 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 	crc32.restart();
 	crc32tmp.restart();
 	crc32target = 0;
-	prevframeid = 0xff;
 	extendedformat = false;
 
+	retransmit = false;
 	while(!done) {
-		retransmit = false;
+		//retransmit = false;
 		linecrc16.restart();
 		waitHexMarker();
 		linecrc16.add(':');
-		if(extendedformat) {
-			frameid = getIHexByte(true);
-			if(frameid != prevframeid) {
-				prevframeid = frameid;
-				crc32 = crc32tmp;
-			}
-			else {
-				retransmit = true;
-				crc32tmp = crc32;
-			}
-		}
 
 		// Get standard frame headers
 		bytecount = getIHexByte(true);  // number of bytes in this record
@@ -244,10 +239,22 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 			default: // ignore other (non I32Hex) records
 				break;
 		}
-		if(extendedformat) serialTx_uint16(linecrc16.calc());
+
+		if(extendedformat) {
+			uint16_t receivecrc16 = getIHexUINT16(false);
+			if(receivecrc16 == linecrc16.calc()) {
+				retransmit = false;
+				crc32 = crc32tmp;
+			}
+			else {
+				retransmit = true;
+				crc32tmp = crc32;
+			}
+			serialTx_uint16(linecrc16.calc());
+		}
 	}
 
-	crc32 = crc32tmp;
+	//crc32 = crc32tmp;
 	if(extendedformat) {
 		writeCRC32(crc32.calc());
 		printFmt("\r\n\r\nCRC32 0x%08X\r\n", crc32.calc());
