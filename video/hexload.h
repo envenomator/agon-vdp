@@ -95,14 +95,14 @@ void echo_checksum(uint8_t ihexlinechecksum, uint8_t ez80checksum, bool retransm
 	printFmt(".");
 }
 
-void serialTx_uint16(uint16_t crc) {
+void serialTx(uint16_t crc) {
 	DBGSerial.write((uint8_t)(crc & 0xFF));
 	DBGSerial.write((uint8_t)(((crc >> 8) & 0xFF)));
 }
 
-void writeCRC32(uint32_t crc) {
-	serialTx_uint16(crc & 0xFFFF);
-	serialTx_uint16((crc >> 16) & 0xFFFF);
+void serialTx(uint32_t crc) {
+	serialTx((uint16_t)(crc & 0xFFFF));
+	serialTx((uint16_t)((crc >> 16) & 0xFFFF));
 }
 
 void VDUStreamProcessor::vdu_sys_hexload(void) {
@@ -183,7 +183,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 				ihexlinechecksum += getIHexByte(true);		// finalize checksum with actual checksum byte in record, total 0 if no errorcount
 				if(ihexlinechecksum || ez80checksum) errorcount++;
 				if(u >= DEF_U_BYTE) echo_checksum(ihexlinechecksum,ez80checksum,retransmit);
-				else printFmt("#");
+				else printFmt("!");
 				break;
 			case IHEX_RECORD_SEGMENT:
 				printdefaultaddress = false;
@@ -261,12 +261,12 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 				retransmit = true;
 				crc32tmp = crc32;
 			}
-			serialTx_uint16(linecrc16.calc());
+			serialTx(linecrc16.calc());
 		}
 	}
 
 	if(extendedformat) {
-		writeCRC32(crc32.calc());
+		serialTx(crc32.calc());
 		printFmt("\r\n\r\nCRC32 0x%08X\r\n", crc32.calc());
 		if(crc32.calc() == crc32target) printFmt("OK\r\n");
 		else printFmt("ERROR 0x%08X expected\r\n", crc32target);
