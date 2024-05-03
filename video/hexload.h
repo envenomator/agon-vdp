@@ -9,12 +9,12 @@ extern void printFmt(const char *format, ...);
 extern HardwareSerial DBGSerial;
 
 CRC16 linecrc16(0x8005, 0x0, 0x0, false, false);
-//CRC16 linecrc16(0x8005, 0x0, 0x0, true, true);
 CRC32 crc32,crc32tmp;
+bool kbcancel;
 
 #define DEF_LOAD_ADDRESS			0x040000
 #define DEF_U_BYTE  				((DEF_LOAD_ADDRESS >> 16) & 0xFF)
-#define OVERRUNTIMEOUT				5000 // ms
+#define OVERRUNTIMEOUT				5
 #define IHEX_RECORD_DATA			0
 #define IHEX_RECORD_EOF				1
 #define IHEX_RECORD_SEGMENT			2 //Extended Segment Address record
@@ -28,29 +28,37 @@ void VDUStreamProcessor::sendKeycodeByte(uint8_t b, bool waitforack) {
 }
 
 uint8_t serialRx_t(void) {
+	auto kb = getKeyboard();
+	fabgl::VirtualKeyItem item;
 	uint32_t start = millis();
-	while(DBGSerial.available() == 0) {
-		if((millis() - start) > 5) return 0;
-	}
-	return DBGSerial.read();
-}
 
-uint8_t serialRx_b(void) {
-	uint32_t start = micros();
-	while(DBGSerial.available() == 0);
+	if (kb->getNextVirtualKey(&item, 0)) {
+		if(item.down) {
+			if(item.ASCII == 0x1B) {
+				kbcancel = true;
+				return 0;
+			}
+		}
+	}
+
+	while(DBGSerial.available() == 0) {
+		if((millis() - start) > OVERRUNTIMEOUT) return 0;
+	}
 	return DBGSerial.read();
 }
 
 void waitHexMarker(void) {
 	uint8_t data = 0;
-	while(data != ':') data = serialRx_b();
+	while(data != ':') {
+		data = serialRx_t();
+		if(kbcancel) return;
+	}
 }
 
 // Receive a single iHex Nibble from the external Debug serial interface
-uint8_t getIHexNibble(bool addcrc, bool blocked) {
+uint8_t getIHexNibble(bool addcrc) {
 	uint8_t nibble, input;
-	if(blocked) input = toupper(serialRx_b());
-	else input = toupper(serialRx_t());
+	input = toupper(serialRx_t());
 	if(addcrc) linecrc16.add(input);
 	if((input >= '0') && input <='9') nibble = input - '0';
 	else nibble = input - 'A' + 10;
@@ -61,8 +69,8 @@ uint8_t getIHexNibble(bool addcrc, bool blocked) {
 // Receive a byte from the external Debug serial interface as two iHex nibbles
 uint8_t getIHexByte(bool addcrc) {
 	uint8_t value;
-	value = getIHexNibble(addcrc, false) << 4;
-	value |= getIHexNibble(addcrc, false);
+	value = getIHexNibble(addcrc) << 4;
+	value |= getIHexNibble(addcrc);
 	return value;  
 }
 
@@ -75,10 +83,8 @@ uint16_t getIHexUINT16(bool addcrc) {
 
 uint32_t getIHexUINT32(bool addcrc) {
 	uint32_t value;
-	value =  ((uint32_t)getIHexByte(addcrc)) << 24;
-	value |= ((uint32_t)getIHexByte(addcrc)) << 16;
-	value |= ((uint32_t)getIHexByte(addcrc)) << 8;
-	value |= getIHexByte(addcrc);
+	value =  ((uint32_t)getIHexUINT16(addcrc)) << 16;
+	value |= getIHexUINT16(addcrc);
 	return value;
 }
 
@@ -115,6 +121,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 
 	printFmt("Receiving Intel HEX records - VDP:%d 8N1\r\n\r\n", SERIALBAUDRATE);
 
+	kbcancel = false;
 	u = DEF_U_BYTE;
 	errorcount = 0;
 	done = false;
@@ -130,12 +137,16 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 
 	retransmit = false;
 	while(!done) {
-		//retransmit = false;
 		linecrc16.restart();
 		waitHexMarker();
 		linecrc16.add(':');
+		if(kbcancel) {
+			printFmt("Canceled\r\n");
+			sendKeycodeByte(0, true);
+			return;
+		}
 
-		// Get standard frame headers
+		// Get frame header
 		bytecount = getIHexByte(true);  // number of bytes in this record
 		h = getIHexByte(true);      	// middle byte of address
 		l = getIHexByte(true);      	// lower byte of address 
@@ -254,7 +265,6 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 		}
 	}
 
-	//crc32 = crc32tmp;
 	if(extendedformat) {
 		writeCRC32(crc32.calc());
 		printFmt("\r\n\r\nCRC32 0x%08X\r\n", crc32.calc());
