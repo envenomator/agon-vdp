@@ -11,8 +11,14 @@ extern HardwareSerial DBGSerial;
 CRC16 linecrc16(0x8005, 0x0, 0x0, false, false);
 CRC32 crc32,crc32tmp;
 
-#define DEF_LOAD_ADDRESS 0x040000
-#define DEF_U_BYTE  ((DEF_LOAD_ADDRESS >> 16) & 0xFF)
+#define DEF_LOAD_ADDRESS			0x040000
+#define DEF_U_BYTE  				((DEF_LOAD_ADDRESS >> 16) & 0xFF)
+#define OVERRUNTIMEOUT				(100000/(SERIALBAUDRATE/10) + 2)
+#define IHEX_RECORD_DATA			0
+#define IHEX_RECORD_EOF				1
+#define IHEX_RECORD_SEGMENT			2 //Extended Segment Address record
+#define IHEX_RECORD_LINEAR			4 //Extended Linear address record,
+#define IHEX_RECORD_EXTENDEDMODE	0xFF
 
 void VDUStreamProcessor::sendKeycodeByte(uint8_t b, bool waitforack) {
 	uint8_t packet[] = {b,0};
@@ -20,12 +26,30 @@ void VDUStreamProcessor::sendKeycodeByte(uint8_t b, bool waitforack) {
 	if(waitforack) readByte_b();
 }
 
-// Receive a single iHex Nibble from the external Debug serial interface
-uint8_t getIHexNibble(bool addcrc) {
-	uint8_t nibble, input;
+uint8_t serialRx_t(void) {
+	uint32_t start = millis();
+	while(DBGSerial.available() == 0) {
+		if((millis() - start) > 0) return 0;
+	}
+	return DBGSerial.read();
+}
 
+uint8_t serialRx_b(void) {
+	uint32_t start = micros();
 	while(DBGSerial.available() == 0);
-	input = toupper(DBGSerial.read());
+	return DBGSerial.read();
+}
+
+void waitHexMarker(void) {
+	uint8_t data = 0;
+	while(data != ':') data = serialRx_b();
+}
+
+// Receive a single iHex Nibble from the external Debug serial interface
+uint8_t getIHexNibble(bool addcrc, bool blocked) {
+	uint8_t nibble, input;
+	if(blocked) input = toupper(serialRx_b());
+	else input = toupper(serialRx_t());
 	if(addcrc) linecrc16.add(input);
 	if((input >= '0') && input <='9') nibble = input - '0';
 	else nibble = input - 'A' + 10;
@@ -36,8 +60,15 @@ uint8_t getIHexNibble(bool addcrc) {
 // Receive a byte from the external Debug serial interface as two iHex nibbles
 uint8_t getIHexByte(bool addcrc) {
 	uint8_t value;
-	value = getIHexNibble(addcrc) << 4;
-	value |= getIHexNibble(addcrc);
+	value = getIHexNibble(addcrc, false) << 4;
+	value |= getIHexNibble(addcrc, false);
+	return value;  
+}
+
+uint8_t getIHexByte_blocked(bool addcrc) {
+	uint8_t value;
+	value = getIHexNibble(addcrc, true) << 4;
+	value |= getIHexNibble(addcrc, true);
 	return value;  
 }
 
@@ -50,41 +81,40 @@ uint32_t getIHexUINT32(bool addcrc) {
 	return value;
 }
 
-void echo_checksum(uint8_t ihexchecksum, uint8_t ez80checksum, bool retransmit) {
+void echo_checksum(uint8_t ihexlinechecksum, uint8_t ez80checksum, bool retransmit) {
 	if(retransmit) printFmt("R");
 	if(ez80checksum) printFmt("*");
-	if(ihexchecksum) {printFmt("X"); return;}
+	if(ihexlinechecksum) {printFmt("X"); return;}
 	printFmt(".");
 }
 
-void writeCRC16(uint16_t crc) {
+void serialTx_uint16(uint16_t crc) {
 	DBGSerial.write((uint8_t)(crc & 0xFF));
 	DBGSerial.write((uint8_t)(((crc >> 8) & 0xFF)));
 }
 
 void writeCRC32(uint32_t crc) {
-	DBGSerial.write((uint8_t)(crc & 0xFF));
-	DBGSerial.write((uint8_t)(((crc >> 8) & 0xFF)));
-	DBGSerial.write((uint8_t)(((crc >> 16) & 0xFF)));
-	DBGSerial.write((uint8_t)(((crc >> 24) & 0xFF)));
+	serialTx_uint16(crc & 0xFFFF);
+	serialTx_uint16((crc >> 16) & 0xFFFF);
 }
 
 void VDUStreamProcessor::vdu_sys_hexload(void) {
-	uint32_t segment_address;
-	uint32_t crc32target;
-	uint8_t u,h,l,tmp;
-	uint8_t bytecount;
-	uint8_t recordtype,subtype;
-	uint8_t data;
-	uint8_t ihexchecksum,ez80checksum;
-	bool	extendedformat;
-	bool done,printdefaultaddress,segmentmode,no_startrecord;
-	bool retransmit;
-	bool rom_area;
-	uint16_t errorcount;
-	uint8_t prevframeid,frameid;
+	uint32_t 	segment_address;
+	uint32_t 	crc32target;
+	uint8_t 	u,h,l,tmp;
+	uint8_t 	bytecount;
+	uint8_t 	recordtype,subtype;
+	uint8_t 	data;
+	uint8_t 	ihexlinechecksum,ez80checksum;
+	bool		extendedformat;
+	bool 		done,printdefaultaddress,segmentmode,no_startrecord;
+	bool 		retransmit;
+	bool 		rom_area;
+	uint16_t 	errorcount;
+	uint8_t 	prevframeid,frameid;
 
-	printFmt("Receiving Intel HEX records - VDP:%d 8N1\r\n\r\n", SERIALBAUDRATE);
+	printFmt("Receiving Intel HEX records - VDP:%d 8N1 - %d\r\n\r\n", SERIALBAUDRATE, OVERRUNTIMEOUT);
+
 	u = DEF_U_BYTE;
 	errorcount = 0;
 	done = false;
@@ -100,12 +130,11 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 	extendedformat = false;
 
 	while(!done) {
-		data = 0;
 		retransmit = false;
 		linecrc16.restart();
-		while(data != ':') if(DBGSerial.available() > 0) data = DBGSerial.read(); // hunt for start of recordtype
+		waitHexMarker();
 		if(extendedformat) {
-			frameid = getIHexByte(false);
+			frameid = getIHexByte_blocked(false);
 			if(frameid != prevframeid) {
 				prevframeid = frameid;
 				crc32 = crc32tmp;
@@ -114,17 +143,17 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 				retransmit = true;
 				crc32tmp = crc32;
 			}
-			while(DBGSerial.available() == 0);
-			DBGSerial.read();
+			waitHexMarker();
 		}
 		linecrc16.add(':');
 
+		// Get standard frame headers
 		bytecount = getIHexByte(true);  // number of bytes in this record
 		h = getIHexByte(true);      	// middle byte of address
 		l = getIHexByte(true);      	// lower byte of address 
 		recordtype = getIHexByte(true); // record type
 
-		ihexchecksum = bytecount + h + l + recordtype;  // init control checksum
+		ihexlinechecksum = bytecount + h + l + recordtype;  // init control checksum
 		if(segmentmode) {
 			u = ((segment_address + (((uint32_t)h << 8) | l)) & 0xFF0000) >> 16;
 			h = ((segment_address + (((uint32_t)h << 8) | l)) & 0xFF00) >> 8;
@@ -133,7 +162,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 		ez80checksum = 1 + u + h + l + bytecount; 		// to be transmitted as a potential packet to the ez80
 
 		switch(recordtype) {
-			case 0: // data record
+			case IHEX_RECORD_DATA:
 				if(printdefaultaddress) {
 					printFmt("\r\nAddress 0x%02x0000 (default)\r\n", DEF_U_BYTE);
 					printdefaultaddress = false;
@@ -148,29 +177,29 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 					data = getIHexByte(true);
 					crc32tmp.add(data);
 					sendKeycodeByte(data, false);
-					ihexchecksum += data;			// update ihexchecksum
+					ihexlinechecksum += data;			// update ihexlinechecksum
 					ez80checksum += data;			// update checksum from bytes sent to the ez80
 				}
 				ez80checksum += readByte_b();		// get feedback from ez80 - a 2s complement to the sum of all received bytes, total 0 if no errorcount      
-				ihexchecksum += getIHexByte(true);		// finalize checksum with actual checksum byte in record, total 0 if no errorcount
-				if(ihexchecksum || ez80checksum) errorcount++;
-				if(u >= DEF_U_BYTE) echo_checksum(ihexchecksum,ez80checksum,retransmit);
+				ihexlinechecksum += getIHexByte(true);		// finalize checksum with actual checksum byte in record, total 0 if no errorcount
+				if(ihexlinechecksum || ez80checksum) errorcount++;
+				if(u >= DEF_U_BYTE) echo_checksum(ihexlinechecksum,ez80checksum,retransmit);
 				else printFmt("#");
 				break;
-			case 2: // Extended Segment Address record
+			case IHEX_RECORD_SEGMENT:
 				printdefaultaddress = false;
 				segmentmode = true;
 				tmp = getIHexByte(true);              // segment 16-bit base address MSB
-				ihexchecksum += tmp;
+				ihexlinechecksum += tmp;
 				segment_address = tmp << 8;
 				tmp = getIHexByte(true);              // segment 16-bit base address LSB
-				ihexchecksum += tmp;
+				ihexlinechecksum += tmp;
 				segment_address |= tmp;
 				segment_address = segment_address << 4; // resulting segment base address in 20-bit space
 				tmp = getIHexByte(true);
-						ihexchecksum += tmp;		// finalize checksum with actual checksum byte in record, total 0 if no errorcount
-						if(ihexchecksum) errorcount++;
-						echo_checksum(ihexchecksum,0,retransmit);		// only echo local checksum errorcount, no ez80<=>ESP packets in this case
+						ihexlinechecksum += tmp;		// finalize checksum with actual checksum byte in record, total 0 if no errorcount
+						if(ihexlinechecksum) errorcount++;
+						echo_checksum(ihexlinechecksum,0,retransmit);		// only echo local checksum errorcount, no ez80<=>ESP packets in this case
 
 				if(no_startrecord) {
 					printFmt("\r\nSegment address 0x%06X", segment_address);
@@ -183,29 +212,29 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 					rom_area = true;
 				}
 				break;
-			case 1: // end of file record
+			case IHEX_RECORD_EOF:
 				tmp = getIHexByte(true);
 				sendKeycodeByte(0, true);       	// end transmission
 				done = true;
 				break;
-			case 4: // extended linear address record, only update U byte for next transmission to the ez80
+			case IHEX_RECORD_LINEAR:  // only update U byte for next transmission to the ez80
 				printdefaultaddress = false;
 				segmentmode = false;
 				tmp = getIHexByte(true);
-				ihexchecksum += tmp;		// ignore top byte of 32bit address, only using 24bit
+				ihexlinechecksum += tmp;		// ignore top byte of 32bit address, only using 24bit
 				u = getIHexByte(true);
-				ihexchecksum += u;
+				ihexlinechecksum += u;
 				tmp = getIHexByte(true);
-				ihexchecksum += tmp;		// finalize checksum with actual checksum byte in record, total 0 if no errorcount
-				if(ihexchecksum) errorcount++;
-				echo_checksum(ihexchecksum,0,retransmit);		// only echo local checksum errorcount, no ez80<=>ESP packets in this case
+				ihexlinechecksum += tmp;		// finalize checksum with actual checksum byte in record, total 0 if no errorcount
+				if(ihexlinechecksum) errorcount++;
+				echo_checksum(ihexlinechecksum,0,retransmit);	// only echo local checksum errorcount, no ez80<=>ESP packets in this case
 				if(u >= DEF_U_BYTE) printFmt("\r\nAddress 0x%02X0000\r\n", u);
 				else {
 					printFmt("\r\nERROR: Address 0x%02X0000 in ROM area\r\n", u);
 					rom_area = true;
 				}
 				break;
-			case 0xFF: // record never sent in extended mode
+			case IHEX_RECORD_EXTENDEDMODE: // record never sent in extended mode
 				getIHexByte(true);
 				subtype = getIHexByte(true);
 				switch(subtype) {
@@ -213,7 +242,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 						extendedformat = true;
 						crc32target = getIHexUINT32(true);
 						getIHexByte(true);
-						//writeCRC16(linecrc16.calc());
+						printFmt("Extended mode\r\n");
 						break;
 					default:
 						break;
@@ -222,7 +251,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 			default: // ignore other (non I32Hex) records
 				break;
 		}
-		if(extendedformat) writeCRC16(linecrc16.calc());
+		if(extendedformat) serialTx_uint16(linecrc16.calc());
 	}
 
 	crc32 = crc32tmp;
