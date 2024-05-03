@@ -51,7 +51,7 @@
 #include <fabgl.h>
 
 #define	DEBUG			0						// Serial Debug Mode: 1 = enable
-#define SERIALBAUDRATE	115200
+#define SERIALBAUDRATE	230400
 
 HardwareSerial	DBGSerial(0);
 
