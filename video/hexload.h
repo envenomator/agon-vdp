@@ -9,12 +9,12 @@ extern void printFmt(const char *format, ...);
 extern HardwareSerial DBGSerial;
 
 CRC16 linecrc16(0x8005, 0x0, 0x0, false, false);
+//CRC16 linecrc16(0x8005, 0x0, 0x0, true, true);
 CRC32 crc32,crc32tmp;
 
 #define DEF_LOAD_ADDRESS			0x040000
 #define DEF_U_BYTE  				((DEF_LOAD_ADDRESS >> 16) & 0xFF)
-//#define OVERRUNTIMEOUT				(100000/(SERIALBAUDRATE/10) + 2)
-#define OVERRUNTIMEOUT				5000
+#define OVERRUNTIMEOUT				5000 // ms
 #define IHEX_RECORD_DATA			0
 #define IHEX_RECORD_EOF				1
 #define IHEX_RECORD_SEGMENT			2 //Extended Segment Address record
@@ -28,9 +28,9 @@ void VDUStreamProcessor::sendKeycodeByte(uint8_t b, bool waitforack) {
 }
 
 uint8_t serialRx_t(void) {
-	uint32_t start = micros();
+	uint32_t start = millis();
 	while(DBGSerial.available() == 0) {
-		if((micros() - start) > OVERRUNTIMEOUT) return 0;
+		if((millis() - start) > 5) return 0;
 	}
 	return DBGSerial.read();
 }
@@ -65,13 +65,6 @@ uint8_t getIHexByte(bool addcrc) {
 	value |= getIHexNibble(addcrc, false);
 	return value;  
 }
-
-//uint8_t getIHexByte_blocked(bool addcrc) {
-//	uint8_t value;
-//	value = getIHexNibble(addcrc, true) << 4;
-//	value |= getIHexNibble(addcrc, true);
-//	return value;  
-//}
 
 uint32_t getIHexUINT32(bool addcrc) {
 	uint32_t value;
@@ -114,7 +107,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 	uint16_t 	errorcount;
 	uint8_t 	prevframeid,frameid;
 
-	printFmt("Receiving Intel HEX records - VDP:%d 8N1 - %d\r\n\r\n", SERIALBAUDRATE, OVERRUNTIMEOUT);
+	printFmt("Receiving Intel HEX records - VDP:%d 8N1\r\n\r\n", SERIALBAUDRATE);
 
 	u = DEF_U_BYTE;
 	errorcount = 0;
@@ -134,8 +127,9 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 		retransmit = false;
 		linecrc16.restart();
 		waitHexMarker();
+		linecrc16.add(':');
 		if(extendedformat) {
-			frameid = getIHexByte(false);
+			frameid = getIHexByte(true);
 			if(frameid != prevframeid) {
 				prevframeid = frameid;
 				crc32 = crc32tmp;
@@ -144,9 +138,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 				retransmit = true;
 				crc32tmp = crc32;
 			}
-			//waitHexMarker();
 		}
-		linecrc16.add(':');
 
 		// Get standard frame headers
 		bytecount = getIHexByte(true);  // number of bytes in this record
