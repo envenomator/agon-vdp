@@ -210,11 +210,13 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 					printFmt("ERROR: Address in ROM area\r\n", segment_address);
 					rom_area = true;
 				}
+				ez80checksum = 0;
 				break;
 			case IHEX_RECORD_EOF:
 				tmp = getIHexByte(true);
 				sendKeycodeByte(0, true);       	// end transmission
 				done = true;
+				ez80checksum = 0;
 				break;
 			case IHEX_RECORD_LINEAR:  // only update U byte for next transmission to the ez80
 				printdefaultaddress = false;
@@ -232,8 +234,10 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 					printFmt("\r\nERROR: Address 0x%02X0000 in ROM area\r\n", u);
 					rom_area = true;
 				}
+				ez80checksum = 0;
 				break;
 			case IHEX_RECORD_EXTENDEDMODE: // record never sent in extended mode
+				ez80checksum = 0;
 				getIHexByte(true);
 				subtype = getIHexByte(true);
 				switch(subtype) {
@@ -253,13 +257,22 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 
 		if(extendedformat) {
 			uint16_t receivecrc16 = getIHexUINT16(false);
-			if(receivecrc16 == linecrc16.calc()) {
-				retransmit = false;
-				crc32 = crc32tmp;
-			}
-			else {
+
+			if(ez80checksum) { // even if CRCs match, hexload client at ez80 might trigger a single-bit checksum error
+				printFmt("MMMM");
 				retransmit = true;
 				crc32tmp = crc32;
+				linecrc16.add(1); // trigger retransmit
+			}
+			else {
+				if(receivecrc16 == linecrc16.calc()) {
+					retransmit = false;
+					crc32 = crc32tmp;
+				}
+				else {
+					retransmit = true;
+					crc32tmp = crc32;
+				}
 			}
 			serialTx(linecrc16.calc());
 		}
