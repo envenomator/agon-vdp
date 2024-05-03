@@ -13,7 +13,8 @@ CRC32 crc32,crc32tmp;
 
 #define DEF_LOAD_ADDRESS			0x040000
 #define DEF_U_BYTE  				((DEF_LOAD_ADDRESS >> 16) & 0xFF)
-#define OVERRUNTIMEOUT				(100000/(SERIALBAUDRATE/10) + 2)
+//#define OVERRUNTIMEOUT				(100000/(SERIALBAUDRATE/10) + 2)
+#define OVERRUNTIMEOUT				5000
 #define IHEX_RECORD_DATA			0
 #define IHEX_RECORD_EOF				1
 #define IHEX_RECORD_SEGMENT			2 //Extended Segment Address record
@@ -27,9 +28,9 @@ void VDUStreamProcessor::sendKeycodeByte(uint8_t b, bool waitforack) {
 }
 
 uint8_t serialRx_t(void) {
-	uint32_t start = millis();
+	uint32_t start = micros();
 	while(DBGSerial.available() == 0) {
-		if((millis() - start) > 0) return 0;
+		if((micros() - start) > OVERRUNTIMEOUT) return 0;
 	}
 	return DBGSerial.read();
 }
@@ -65,12 +66,12 @@ uint8_t getIHexByte(bool addcrc) {
 	return value;  
 }
 
-uint8_t getIHexByte_blocked(bool addcrc) {
-	uint8_t value;
-	value = getIHexNibble(addcrc, true) << 4;
-	value |= getIHexNibble(addcrc, true);
-	return value;  
-}
+//uint8_t getIHexByte_blocked(bool addcrc) {
+//	uint8_t value;
+//	value = getIHexNibble(addcrc, true) << 4;
+//	value |= getIHexNibble(addcrc, true);
+//	return value;  
+//}
 
 uint32_t getIHexUINT32(bool addcrc) {
 	uint32_t value;
@@ -134,7 +135,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 		linecrc16.restart();
 		waitHexMarker();
 		if(extendedformat) {
-			frameid = getIHexByte_blocked(false);
+			frameid = getIHexByte(false);
 			if(frameid != prevframeid) {
 				prevframeid = frameid;
 				crc32 = crc32tmp;
@@ -143,7 +144,7 @@ void VDUStreamProcessor::vdu_sys_hexload(void) {
 				retransmit = true;
 				crc32tmp = crc32;
 			}
-			waitHexMarker();
+			//waitHexMarker();
 		}
 		linecrc16.add(':');
 
