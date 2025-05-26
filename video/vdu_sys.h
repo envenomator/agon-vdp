@@ -381,6 +381,7 @@ void VDUStreamProcessor::sendGeneralPoll() {
 		debug_log("sendGeneralPoll: Timeout\n\r");
 		return;
 	}
+	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_GP);
 	uint8_t packet[] = {
 		(uint8_t) (b & 0xFF),
 	};
@@ -403,6 +404,7 @@ void VDUStreamProcessor::sendCursorPosition() {
 	// and if x/y are swapped, we need to swap them
 	uint8_t x, y;
 
+	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_CURSOR);
 	context->getCursorTextPosition(&x, &y);
 	
 	uint8_t packet[] = { x, y };
@@ -412,10 +414,11 @@ void VDUStreamProcessor::sendCursorPosition() {
 // VDU 23, 0, &83 / &93 Send a character back to MOS
 //
 void VDUStreamProcessor::sendScreenChar(char c) {
-	uint8_t packet[] = {
-		(uint8_t)c,
-	};
 	setVDPVariable(VDPVAR_LAST_CHARACTER_READ, c);
+	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_SCRCHAR);
+	uint8_t packet[] = {
+		uint8_t (getVDPVariable(VDPVAR_LAST_CHARACTER_READ)),
+	};
 	send_packet(PACKET_SCRCHAR, sizeof packet, packet);
 }
 
@@ -467,6 +470,7 @@ void VDUStreamProcessor::sendColour(uint8_t colour) {
 
 void VDUStreamProcessor::sendScrPixelPacket() {
 	// Send the pixel packet
+	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_SCRPIXEL);
 	uint8_t packet[] = {
 		(uint8_t) getVDPVariable(VDPVAR_LAST_COLOUR_RED),
 		(uint8_t) getVDPVariable(VDPVAR_LAST_COLOUR_GREEN),
@@ -495,6 +499,8 @@ void VDUStreamProcessor::printBuffer(uint16_t bufferId) {
 void VDUStreamProcessor::sendTime() {
 	vdp_time_t	time;
 
+	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_RTC);
+
 	time.year = rtc.getYear() - EPOCH_YEAR;	// 0 - 255
 	time.month = rtc.getMonth();			// 0 - 11
 	time.day = rtc.getDay();				// 1 - 31
@@ -512,6 +518,7 @@ void VDUStreamProcessor::sendTime() {
 void VDUStreamProcessor::sendModeInformation() {
 	// our character dimensions are for the currently active viewport
 	// needed as MOS's line editing system uses these
+	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_MODE);
 	uint8_t packet[] = {
 		(uint8_t) (canvasW & 0xFF),			// Width in pixels (L)
 		(uint8_t) ((canvasW >> 8) & 0xFF),	// Width in pixels (H)
@@ -555,6 +562,7 @@ void VDUStreamProcessor::sendKeyboardState() {
 	uint16_t	delay;
 	uint16_t	rate;
 	uint8_t		ledState;
+	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_KEYSTATE);
 	getKeyboardState(&delay, &rate, &ledState);
 	uint8_t		packet[] = {
 		(uint8_t) (delay & 0xFF),

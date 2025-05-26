@@ -231,6 +231,11 @@ void setVDPVariable(uint16_t flag, uint16_t value) {
 					// set modifier bit
 					featureFlags[VDPVAR_KEYEVENT_MODIFIERS] |= modifierBit;
 				}
+				processor->sendKeyboardData();
+			}	break;
+			case VDPVAR_KEYEVENT_VK:
+			case VDPVAR_KEYEVENT_DOWN: {
+				processor->sendKeyboardData();
 			}	break;
 		}
 	}

@@ -320,13 +320,13 @@ void VDUStreamProcessor::vdu_mode(uint8_t mode) {
 		showMouseCursor();
 	}
 	resetMousePositioner(canvasW, canvasH, _VGAController.get());
-	// update MOS with new info
-	sendModeInformation();
 	if (mouseVisible) {
 		// update mouse variables from potentially revised mouse position
 		updateMouseVars(nullptr);
 	}
 	bufferCallCallbacks(CALLBACK_MODE_CHANGE);
+	// update MOS with new info
+	sendModeInformation();
 }
 
 // VDU 24 Graphics viewport
