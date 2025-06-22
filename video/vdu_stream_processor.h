@@ -4,6 +4,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <variant>
 
 #include <Stream.h>
 #include <fabgl.h>
@@ -14,6 +15,11 @@
 #include "buffer_stream.h"
 #include "span.h"
 #include "types.h"
+#include "utils/thread_safe_variant_deque.h"
+
+// Queue for pending events waiting to be handled
+using EventQueue = ThreadSafeVariantDeque<KeyboardEvent, MouseEvent>;
+EventQueue eventQueue;
 
 extern uint16_t getVDPVariable(uint16_t flag);
 
@@ -30,8 +36,6 @@ class VDUStreamProcessor {
 		bool commandsEnabled = true;
 		bool echoEnabled = false;
 		bool echoBuffering = false;
-		bool pendingMouseData = false;
-		bool pendingKeyboardData = false;
 
 		std::vector<uint8_t> echoBuffer;
 
@@ -52,7 +56,7 @@ class VDUStreamProcessor {
 
 		void handleKeyboardAndMouse();
 		void updateMouseVars(MouseDelta *delta);
-		void sendPendingKeyboardAndMouse();
+		void processEventQueue();
 
 		void vdu_print(char c, bool usePeek);
 		void vdu_colour();
@@ -176,7 +180,7 @@ class VDUStreamProcessor {
 		void writeTileToBufferFlipY(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
 		void writeTileToBufferFlipXY(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
 
-		void writeTileToLayerBuffer(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer,  uint8_t tileLayerHeight, uint8_t tileLayerWidth);
+		void writeTileToLayerBuffer(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
 		void writeTileToLayerBufferFlipX(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
 		void writeTileToLayerBufferFlipY(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
 		void writeTileToLayerBufferFlipXY(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
@@ -519,65 +523,74 @@ void VDUStreamProcessor::send_packet(uint8_t code, uint16_t len, uint8_t data[])
 }
 
 inline void VDUStreamProcessor::sendMouseData() {
-	pendingMouseData = true;
+	eventQueue.pushUnique(MouseEvent{});
 }
 
 inline void VDUStreamProcessor::sendKeyboardData() {
-	pendingKeyboardData = true;
+	eventQueue.pushUnique(KeyboardEvent{});
 }
 
-void VDUStreamProcessor::sendPendingKeyboardAndMouse() {
-	if (pendingMouseData) {
-		bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_MOUSE);
-		pendingMouseData = false;
-		uint16_t mouseX = getVDPVariable(VDPVAR_MOUSE_XPOS_OS);
-		uint16_t mouseY = getVDPVariable(VDPVAR_MOUSE_YPOS_OS);
-		uint8_t buttons = getVDPVariable(VDPVAR_MOUSE_BUTTONS);
-		uint8_t wheelDelta = getVDPVariable(VDPVAR_MOUSE_WHEEL);
-		uint16_t deltaX = getVDPVariable(VDPVAR_MOUSE_DELTAX_OS);
-		uint16_t deltaY = getVDPVariable(VDPVAR_MOUSE_DELTAY_OS);
-		debug_log("sendMouseData: %d %d %d %d %d %d\n\r", mouseX, mouseY, buttons, wheelDelta, deltaX, deltaY);
-		uint8_t packet[] = {
-			(uint8_t) (mouseX & 0xFF),
-			(uint8_t) ((mouseX >> 8) & 0xFF),
-			(uint8_t) (mouseY & 0xFF),
-			(uint8_t) ((mouseY >> 8) & 0xFF),
-			(uint8_t) buttons,
-			(uint8_t) wheelDelta,
-			(uint8_t) (deltaX & 0xFF),
-			(uint8_t) ((deltaX >> 8) & 0xFF),
-			(uint8_t) (deltaY & 0xFF),
-			(uint8_t) ((deltaY >> 8) & 0xFF),
-		};
-		send_packet(PACKET_MOUSE, sizeof packet, packet);
-	}
-	if (pendingKeyboardData) {
-		bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_KEYCODE);
-		pendingKeyboardData = false;
-		// Create and send the packet back to MOS
-		uint8_t packet[] = {
-			uint8_t (getVDPVariable(VDPVAR_KEYEVENT_KEYCODE) & 0xFF),
-			uint8_t (getVDPVariable(VDPVAR_KEYEVENT_MODIFIERS)),
-			uint8_t (getVDPVariable(VDPVAR_KEYEVENT_VK) & 0xFF),
-			uint8_t (getVDPVariable(VDPVAR_KEYEVENT_DOWN)),
-		};
-		send_packet(PACKET_KEYCODE, sizeof packet, packet);
+void VDUStreamProcessor::processEventQueue() {
+	EventQueue::value_type item;
+	// Process the event queue, only removing items after processing
+	// to ensure callbacks that change key/mouse values won't instantly add the same event to the queue
+	while (eventQueue.peek(item)) {
+		std::visit(overloaded{
+			[this](const MouseEvent& event) {
+				bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_MOUSE);
+				uint16_t mouseX = getVDPVariable(VDPVAR_MOUSE_XPOS_OS);
+				uint16_t mouseY = getVDPVariable(VDPVAR_MOUSE_YPOS_OS);
+				uint8_t buttons = getVDPVariable(VDPVAR_MOUSE_BUTTONS);
+				uint8_t wheelDelta = getVDPVariable(VDPVAR_MOUSE_WHEEL);
+				uint16_t deltaX = getVDPVariable(VDPVAR_MOUSE_DELTAX_OS);
+				uint16_t deltaY = getVDPVariable(VDPVAR_MOUSE_DELTAY_OS);
+				debug_log("sendMouseData: %d %d %d %d %d %d\n\r", mouseX, mouseY, buttons, wheelDelta, deltaX, deltaY);
+				uint8_t packet[] = {
+					(uint8_t) (mouseX & 0xFF),
+					(uint8_t) ((mouseX >> 8) & 0xFF),
+					(uint8_t) (mouseY & 0xFF),
+					(uint8_t) ((mouseY >> 8) & 0xFF),
+					(uint8_t) buttons,
+					(uint8_t) wheelDelta,
+					(uint8_t) (deltaX & 0xFF),
+					(uint8_t) ((deltaX >> 8) & 0xFF),
+					(uint8_t) (deltaY & 0xFF),
+					(uint8_t) ((deltaY >> 8) & 0xFF),
+				};
+				send_packet(PACKET_MOUSE, sizeof packet, packet);
+			},
+			[this](const KeyboardEvent& event) {
+				bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_KEYCODE);
+				uint8_t packet[] = {
+					uint8_t (getVDPVariable(VDPVAR_KEYEVENT_KEYCODE) & 0xFF),
+					uint8_t (getVDPVariable(VDPVAR_KEYEVENT_MODIFIERS)),
+					uint8_t (getVDPVariable(VDPVAR_KEYEVENT_VK) & 0xFF),
+					uint8_t (getVDPVariable(VDPVAR_KEYEVENT_DOWN)),
+				};
+				send_packet(PACKET_KEYCODE, sizeof packet, packet);
+			}
+			// ... other handlers ...
+		}, item);
+		// Remove the processed item
+		eventQueue.pop();
 	}
 }
 
-// Process all available commands from the stream
+// Process all available commands from the stream (used for buffer call/jump commands)
 //
 void VDUStreamProcessor::processAllAvailable() {
 	while (byteAvailable()) {
 		flushEcho();
 		vdu(readByte());
 	}
+	// Don't call processEventQueue to allow nested buffer calls to edit values that could trigger events
 }
 
 // Process next command from the stream
 //
 void VDUStreamProcessor::processNext() {
 	if (getContext()->checkForVSYNC()) {
+		// TODO consider making this an event pushed to the queue?
 		bufferCallCallbacks(CALLBACK_VSYNC);
 		if (!byteAvailable()) {
 			getContext()->clearTempPagedMode();
@@ -588,6 +601,7 @@ void VDUStreamProcessor::processNext() {
 		}
 	}
 
+	processEventQueue();
 	handleKeyboardAndMouse();
 	doCursorFlash();
 
@@ -620,7 +634,7 @@ void VDUStreamProcessor::processNext() {
 			break;
 	}
 
-	sendPendingKeyboardAndMouse();
+	processEventQueue();
 }
 
 inline void VDUStreamProcessor::pushEcho(uint8_t c) {
@@ -685,9 +699,6 @@ void VDUStreamProcessor::handleKeyboardAndMouse() {
 	MouseDelta delta;
 	fabgl::VirtualKeyItem kbItem;
 
-	// Send any pending packets to MOS (possibly created by a callback)
-	sendPendingKeyboardAndMouse();
-
 	// Check for keyboard event
 	while (getKeyboardKey(&kbItem)) {
 		// Set system variables corresponding to the keyboard event
@@ -723,20 +734,19 @@ void VDUStreamProcessor::handleKeyboardAndMouse() {
 			}
 		}
 
-		// Send any pending event packets to MOS
-		sendPendingKeyboardAndMouse();
+		// Process queue to send any pending keyboard events
+		processEventQueue();
 	}
 
 	// has the mouse moved?
 	if (mouseMoved(&delta)) {
 		// Absolute position of mouse will have been updated from the mouse delta
-		// Update all of our mouse variables, which will trigger a mouse event to be sent
-		// when the current processNext() call completes
+		// Update all of our mouse variables, which will trigger a mouse event to be queued
 		updateMouseVars(&delta);
 		// Perform mouse h/w event callback
 		bufferCallCallbacks(CALLBACK_MOUSE);
 		// Send any pending event packets to MOS
-		sendPendingKeyboardAndMouse();
+		processEventQueue();
 	}
 }
 
