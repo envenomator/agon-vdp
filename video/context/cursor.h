@@ -206,6 +206,7 @@ void Context::ensureCursorInViewport(Rect viewport) {
 // Text cursor sprite functions
 
 void Context::deleteTextCursor() {
+	debug_log("Deleting text cursor sprite and bitmap\n");
 	_VGAController->setTextCursor(nullptr);
 	if (textCursorSprite != nullptr) {
 		textCursorSprite = nullptr;
@@ -247,13 +248,13 @@ void Context::updateTextCursorBitmap() {
 	// which can be used to check whether the colour has changed - not a true RGB888 colour
 	RGB888 cursorRGB(cursorColor, cursorColor, cursorColor);
 
-	// If this info doesn't match our current bitmap, we may need to create a new one
-	if (textCursorBitmap == nullptr
+	auto differentSize = textCursorBitmap == nullptr
 		|| textCursorBitmap->width != width
-		|| textCursorBitmap->height != height
-		|| textCursorBitmap->foregroundColor != cursorRGB
-	) {
-		if (textCursorBitmap && textCursorBitmap->width == width && textCursorBitmap->height == height) {
+		|| textCursorBitmap->height != height;
+
+	// If this info doesn't match our current bitmap, we may need to create a new one
+	if (differentSize || (textCursorBitmap->foregroundColor.R != cursorColor)) {
+		if (!differentSize) {
 			// size matches so colour must be different - update it
 			memset(textCursorBitmap->data, cursorColor, width * height);
 			// update the tracking colour on the bitmap
@@ -296,11 +297,12 @@ void Context::updateTextCursorBitmap() {
 		}
 		textCursorSprite->hardware = true;
 		textCursorSprite->paintOptions.mode = fabgl::PaintMode::XOR;
+		debug_log("Created new text cursor sprite\n");
 	}
 
 	if (textCursorSprite->getFrame() != textCursorBitmap.get()) {
-		// if the sprite's frame is not the same as the bitmap, set it
-		debug_log("Setting text cursor sprite frame to bitmap %p\n", textCursorBitmap.get());
+		// if the sprite's frame is not the same as the bitmap, update the cursor
+		debug_log("Updating text cursor sprite with new bitmap\n");
 		textCursorSprite->clearBitmaps();
 		textCursorSprite->addBitmap(textCursorBitmap.get());
 	}
@@ -324,7 +326,7 @@ void Context::doCursorFlash() {
 		if (ttxtMode) {
 			ttxt_instance.flash();
 		}
-		if (cursorEnabled && textCursorSprite != nullptr) {
+		if (textCursorActive() && cursorEnabled && textCursorSprite != nullptr) {
 			textCursorSprite->visible = !textCursorSprite->visible;
 		}
 		resetPagedModeCount();
@@ -342,6 +344,7 @@ inline void Context::setActiveCursor(CursorType type) {
 			changeFont(textFont, textFontData, 0);
 			setCharacterOverwrite(true);
 			setActiveViewport(ViewportType::Text);
+			updateTextCursorPosition();
 			break;
 		case CursorType::Graphics:
 			activeCursor = &p1;
@@ -350,7 +353,6 @@ inline void Context::setActiveCursor(CursorType type) {
 			setActiveViewport(ViewportType::Graphics);
 			break;
 	}
-	updateTextCursorPosition();
 	updateTextCursorVisibility();
 }
 
