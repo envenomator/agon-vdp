@@ -149,11 +149,8 @@ class Context {
 		void cursorAutoNewline();
 		void ensureCursorInViewport(Rect viewport);
 
-		// TODO: Cursor...
 		inline void updateTextCursorPosition() {
 			if (textCursorActive() && textCursorSprite != nullptr) {
-				// Update the text cursor sprite position
-				// with position tweaks from cursorHStart and cursorVStart
 				textCursorSprite->moveTo(
 					activeCursor->X + cursorHStart,
 					activeCursor->Y + cursorVStart
@@ -332,7 +329,6 @@ class Context {
 		void plotString(const std::string & s);
 		void plotBackspace();
 		void drawBitmap(uint16_t x, uint16_t y, bool compensateHeight, bool forceSet);
-		void drawCursor(Point p);
 
 		void setAffineTransform(uint8_t flags, uint16_t bufferId);
 
@@ -380,7 +376,36 @@ Context::Context(const Context &c) {
 	// Data related to cursor rendering
 	cursorTime = c.cursorTime;
 	cursorCtrlPauseFrames = c.cursorCtrlPauseFrames;
-	// TODO: Cursor - Clone the text cursor bitmap and sprite
+
+	// Clone our text cursor sprite, if we have one, and we can
+	// TODO: Cursor - update this when we support custom cursor bitmaps/sprites
+	if (c.textCursorBitmap) {
+		// Copy our bitmap data
+		auto data = (uint8_t*)ps_malloc(c.textCursorBitmap->width * c.textCursorBitmap->height);
+		if (data) {
+			memcpy(data, c.textCursorBitmap->data, c.textCursorBitmap->width * c.textCursorBitmap->height);
+			textCursorBitmap = std::make_shared<Bitmap>(c.textCursorBitmap->width, c.textCursorBitmap->height, data, c.textCursorBitmap->format, true);
+		} else {
+			textCursorBitmap = nullptr;
+		}
+		if (textCursorBitmap && c.textCursorSprite) {
+			// Create a new sprite for the text cursor
+			textCursorSprite = make_shared_psram<Sprite>();
+			if (textCursorSprite) {
+				textCursorSprite->addBitmap(textCursorBitmap.get());
+				textCursorSprite->moveTo(c.textCursorSprite->x, c.textCursorSprite->y);
+				textCursorSprite->paintOptions = c.textCursorSprite->paintOptions;
+				textCursorSprite->allowDraw = c.textCursorSprite->allowDraw;
+				textCursorSprite->hardware = c.textCursorSprite->hardware;
+				textCursorSprite->visible = c.textCursorSprite->visible;
+			}
+		} else {
+			textCursorSprite = nullptr;
+		}
+	} else {
+		textCursorBitmap = nullptr;
+		textCursorSprite = nullptr;
+	}
 
 	pagedMode = (PagedMode)((uint8_t)c.pagedMode & 1);
 	pagedModeCount = c.pagedModeCount;

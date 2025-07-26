@@ -855,27 +855,6 @@ void Context::drawBitmap(uint16_t x, uint16_t y, bool compensateHeight, bool for
 	}
 }
 
-// Draw cursor
-// NB this function uses an XOR paint, so calling it will effectively
-// toggle the cursor visibility on or off
-// tracking of cursor visibility state is not done here
-//
-// TODO: Cursor - remove this when we're using a h/w cursor
-void Context::drawCursor(Point p) {
-	if (textCursorActive()) {
-		auto font = getFont();
-		if (cursorHStart < font->width && cursorHStart <= cursorHEnd && cursorVStart < font->height && cursorVStart <= cursorVEnd) {
-			canvas->setPaintOptions(cpo);
-			canvas->setBrushColor(tbg);
-			canvas->fillRectangle(p.X + cursorHStart, p.Y + cursorVStart, p.X + std::min(((int)cursorHEnd), font->width - 1), p.Y + std::min(((int)cursorVEnd), font->height - 1));
-			canvas->setBrushColor(tfg);
-			canvas->fillRectangle(p.X + cursorHStart, p.Y + cursorVStart, p.X + std::min(((int)cursorHEnd), font->width - 1), p.Y + std::min(((int)cursorVEnd), font->height - 1));
-			canvas->setPaintOptions(tpo);
-			plottingText = false;
-		}
-	}
-}
-
 // Set affine transform
 //
 void Context::setAffineTransform(uint8_t flags, uint16_t bufferId) {
@@ -985,6 +964,7 @@ void Context::activate() {
 	canvas->setLinePattern(linePattern);
 	canvas->setLinePatternLength(linePatternLength);
 	moveTo();
+	_VGAController->setTextCursor(textCursorSprite.get());
 }
 
 #endif // CONTEXT_GRAPHICS_H

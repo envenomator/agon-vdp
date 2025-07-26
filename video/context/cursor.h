@@ -203,90 +203,112 @@ void Context::ensureCursorInViewport(Rect viewport) {
 }
 
 
-// Cursor sprite functions
+// Text cursor sprite functions
 
 void Context::deleteTextCursor() {
+	_VGAController->setTextCursor(nullptr);
 	if (textCursorSprite != nullptr) {
-		// TODO: Cursor - remove the sprite from our sprite list...
-		// so we can then delete it
-		auto tempCursorSprite = textCursorSprite;
 		textCursorSprite = nullptr;
 	}
 	if (textCursorBitmap != nullptr) {
-		// Free the manually allocated data
 		if (textCursorBitmap->data != nullptr) {
-			free(textCursorBitmap->data);  // This is now correct since we used psram_alloc
+			heap_caps_free(textCursorBitmap->data);
 		}
 		textCursorBitmap = nullptr;
 	}
 }
 
-// TODO: Cursor - create/update/destroy the text cursor bitmap and sprite
 void Context::updateTextCursorBitmap() {
-	return;  // TODO: Cursor - currently non-functional, so just return
-	// if we're in teletext mode, we should ditch our bitmap and sprite
-	if (ttxtMode) {
-		deleteTextCursor();
+	// TODO: Cursor - when we support custom cursor bitmaps/sprites
+	//   we should just ensure that the sprite is properly set up...
+	// but for teletext mode we should not support custom text cursors
+	auto font = getFont();
+	if (!font) {
 		return;
 	}
-	// otherwise...
-	// TODO: Cursor - when we support custom cursor bitmaps/sprites
-	//   we should just ensure that the sprite is properly set up
-	auto font = getFont();
-	auto width = std::min(((int)cursorHEnd), font->width - 1) - cursorHStart;
-	auto height = std::min(((int)cursorVEnd), font->height - 1) - cursorVStart;
+	auto width = std::min(cursorHEnd, font->width) - cursorHStart;
+	auto height = std::min(cursorVEnd, font->height) - cursorVStart;
 
 	// ensure the bitmap width or height is not negative
 	// - if so the cursor can just be deleted
-	if (width < 0 || height < 0) {
+	if (width <= 0 || height <= 0) {
 		deleteTextCursor();
 		return;
 	}
 
-	// Cursor colour:
-	// to replicate existing cursor we need an XOR plot
-	// existing cursor does an XOR plot with bg then fg
-	// i think this means we can create a bitmap that is the XOR of the two colours
-	// so find the colour to use, which means getting RGB2222 values for tfg and tbg
+	// Our cursor color is derived from fg and bg colours, XOR'd together
+	// we we do an XOR plot to ensure that we erase the bg and draw the fg colour
 	auto r = (tfg.R ^ tbg.R) >> 6;
 	auto g = (tfg.G ^ tbg.G) >> 6;
 	auto b = (tfg.B ^ tbg.B) >> 6;
-	// create a cursor colour byte, effectively ARGB2222
+	// bitmap colour byte is RGBA2222 format, which uses bit order AABBGGRR
 	uint8_t cursorColor = (3 << 6) | (b << 4) | (g << 2) | r;
-	// get a copy as RGB888
+	// We'll make a fake RGB888 colour to store as the foregroundColor on the bitmap
+	// which can be used to check whether the colour has changed - not a true RGB888 colour
 	RGB888 cursorRGB(cursorColor, cursorColor, cursorColor);
 
-	// If this doesn't match our current bitmap, we need to create a new one
+	// If this info doesn't match our current bitmap, we may need to create a new one
 	if (textCursorBitmap == nullptr
 		|| textCursorBitmap->width != width
 		|| textCursorBitmap->height != height
 		|| textCursorBitmap->foregroundColor != cursorRGB
 	) {
-		// delete the old cursor sprite and bitmap if they exist
-		deleteTextCursor();
-
-		// make a new bitmap for the cursor, first by creating a data block
-		auto data = (uint8_t*)ps_malloc(width * height);
-		if (!data) {
-			// if we can't allocate the data block, just return
-			return;
+		if (textCursorBitmap && textCursorBitmap->width == width && textCursorBitmap->height == height) {
+			// size matches so colour must be different - update it
+			memset(textCursorBitmap->data, cursorColor, width * height);
+			// update the tracking colour on the bitmap
+			textCursorBitmap->foregroundColor = cursorRGB;
+			debug_log("Updated text cursor bitmap with colour %02x\n", cursorColor);
+		} else {
+			// delete the old cursor sprite and bitmap if they exist
+			deleteTextCursor();
+	
+			// make a new bitmap for the cursor, first by creating a data block
+			auto data = (uint8_t*)ps_malloc(width * height);
+			if (!data) {
+				// if we can't allocate the data block, just return
+				debug_log("Failed to allocate memory for text cursor bitmap data\n");
+				return;
+			}
+			// fill the data block with the cursor colour
+			memset(data, cursorColor, width * height);
+	
+			textCursorBitmap = make_shared_psram<Bitmap>(width, height, data, PixelFormat::RGBA2222, cursorRGB);
+			if (!textCursorBitmap) {
+				// if we couldn't create the bitmap, free the data and return
+				heap_caps_free(data);
+				debug_log("Failed to create text cursor bitmap\n");
+				return;
+			}
+			debug_log("Created text cursor bitmap %dx%d with colour %02x\n",
+				textCursorBitmap->width, textCursorBitmap->height, cursorColor);
 		}
-		// fill the data block with the cursor colour
-		memset(data, cursorColor, width * height);
-
-		textCursorBitmap = make_shared_psram<Bitmap>(width, height, data, PixelFormat::RGBA2222, cursorRGB);
 	}
 
-	if (textCursorBitmap == nullptr) {
-		// if we couldn't create the bitmap, just return
-		return;
-	}
+	// If we reach here we have a textCursorBitmap
 
 	// Ensure our sprite exists, and if not create it
+	if (textCursorSprite == nullptr) {
+		textCursorSprite = make_shared_psram<Sprite>();
+		if (!textCursorSprite) {
+			debug_log("Failed to create text cursor sprite\n");
+			return;
+		}
+		textCursorSprite->hardware = true;
+		textCursorSprite->paintOptions.mode = fabgl::PaintMode::XOR;
+	}
 
+	if (textCursorSprite->getFrame() != textCursorBitmap.get()) {
+		// if the sprite's frame is not the same as the bitmap, set it
+		debug_log("Setting text cursor sprite frame to bitmap %p\n", textCursorBitmap.get());
+		textCursorSprite->clearBitmaps();
+		textCursorSprite->addBitmap(textCursorBitmap.get());
+	}
 
+	updateTextCursorVisibility();
+	updateTextCursorPosition();
 
-
+	_VGAController->setTextCursor(textCursorSprite.get());
 }
 
 
@@ -303,9 +325,7 @@ void Context::doCursorFlash() {
 			ttxt_instance.flash();
 		}
 		if (cursorEnabled && textCursorSprite != nullptr) {
-			// TODO: Cursor - toggle cursor sprite visibility
 			textCursorSprite->visible = !textCursorSprite->visible;
-			// drawCursor(textCursor);
 		}
 		resetPagedModeCount();
 	}
@@ -371,18 +391,22 @@ void Context::setCursorAppearance(uint8_t appearance) {
 
 void Context::setCursorVStart(uint8_t start) {
 	cursorVStart = start;
+	updateTextCursorBitmap();
 }
 
 void Context::setCursorVEnd(uint8_t end) {
 	cursorVEnd = end;
+	updateTextCursorBitmap();
 }
 
 void Context::setCursorHStart(uint8_t start) {
 	cursorHStart = start;
+	updateTextCursorBitmap();
 }
 
 void Context::setCursorHEnd(uint8_t end) {
 	cursorHEnd = end;
+	updateTextCursorBitmap();
 }
 
 void Context::setPagedMode(PagedMode mode) {
