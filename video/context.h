@@ -73,8 +73,6 @@ class Context {
 		CursorBehaviour cursorBehaviour;				// Cursor behavior byte
 		Point			textCursor;						// Text cursor
 		Point *			activeCursor = &textCursor;		// Pointer to the active text cursor (textCursor or p1)
-		bool			cursorShowing = false;			// Cursor is currently showing on screen
-		bool			cursorTemporarilyHidden = false;	// Cursor is temporarily hidden for command processing
 		TickType_t		cursorTime;						// Time of last cursor flash event
 		uint8_t			cursorCtrlPauseFrames = 3;		// Number of frames to pause on newline when ctrl held
 
@@ -83,6 +81,8 @@ class Context {
 		uint8_t			cursorVEnd;						// Cursor vertical end
 		uint8_t			cursorHStart;					// Cursor horizontal start offset
 		uint8_t			cursorHEnd;						// Cursor horizontal end
+		std::shared_ptr<Bitmap>	textCursorBitmap = nullptr;		// Pointer to the text cursor bitmap
+		std::shared_ptr<Sprite>	textCursorSprite = nullptr;		// Pointer to the text cursor sprite
 
 		// Paged mode tracking
 		PagedMode 		pagedMode = PagedMode::Disabled;	// Is output paged or not? Set by VDU 14 and 15
@@ -133,15 +133,42 @@ class Context {
 		bool cursorIsOffTop();
 		bool cursorIsOffBottom();
 
-		void cursorEndRow();
 		void cursorEndRow(Point * cursor, Rect * viewport);
-		void cursorTop();
+		inline void cursorEndRow() {
+			cursorEndRow(activeCursor, activeViewport);
+		}
 		void cursorTop(Point * cursor, Rect * viewport);
-		void cursorEndCol();
+		inline void cursorTop() {
+			cursorTop(activeCursor, activeViewport);
+		}
 		void cursorEndCol(Point * cursor, Rect * viewport);
+		inline void cursorEndCol() {
+			cursorEndCol(activeCursor, activeViewport);
+		}
 
 		void cursorAutoNewline();
 		void ensureCursorInViewport(Rect viewport);
+
+		// TODO: Cursor...
+		inline void updateTextCursorPosition() {
+			if (textCursorActive() && textCursorSprite != nullptr) {
+				// Update the text cursor sprite position
+				// with position tweaks from cursorHStart and cursorVStart
+				textCursorSprite->moveTo(
+					activeCursor->X + cursorHStart,
+					activeCursor->Y + cursorVStart
+				);
+			}
+		}
+
+		inline void updateTextCursorVisibility() {
+			if (textCursorSprite != nullptr) {
+				textCursorSprite->visible = cursorEnabled && textCursorActive();
+			}
+		}
+
+		void deleteTextCursor();
+		void updateTextCursorBitmap();
 
 		// Viewport management functions
 		Rect * getViewport(ViewportType type);
@@ -209,8 +236,6 @@ class Context {
 		bool checkForVSYNC();
 
 		// Cursor management functions
-		void hideCursor();
-		void showCursor();
 		void doCursorFlash();
 		inline bool textCursorActive();
 		inline void setActiveCursor(CursorType type);
@@ -226,17 +251,25 @@ class Context {
 		void clearTempPagedMode();
 		void resetTextCursor();
 
-		void cursorUp();
 		void cursorUp(bool moveOnly);
-		void cursorDown();
+		inline void cursorUp() {
+			cursorUp(false);
+		}
 		void cursorDown(bool moveOnly);
+		inline void cursorDown() {
+			cursorDown(false);
+		}
 		void cursorLeft();
 		void cursorRight();
 		void cursorRight(bool scrollProtect);
-		void cursorCR();
 		void cursorCR(Point * cursor, Rect * viewport);
-		void cursorHome();
+		inline void cursorCR() {
+			cursorCR(activeCursor, activeViewport);
+		}
 		void cursorHome(Point * cursor, Rect * viewport);
+		inline void cursorHome() {
+			cursorHome(activeCursor, activeViewport);
+		}
 		void cursorTab(uint8_t x, uint8_t y);
 		void cursorRelativeMove(int8_t x, int8_t y);
 		void getCursorTextPosition(uint8_t * x, uint8_t * y);
@@ -345,10 +378,9 @@ Context::Context(const Context &c) {
 	cursorHStart = c.cursorHStart;
 	cursorHEnd = c.cursorHEnd;
 	// Data related to cursor rendering
-	cursorShowing = c.cursorShowing;
-	cursorTemporarilyHidden = c.cursorTemporarilyHidden;
 	cursorTime = c.cursorTime;
 	cursorCtrlPauseFrames = c.cursorCtrlPauseFrames;
+	// TODO: Cursor - Clone the text cursor bitmap and sprite
 
 	pagedMode = (PagedMode)((uint8_t)c.pagedMode & 1);
 	pagedModeCount = c.pagedModeCount;

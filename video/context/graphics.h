@@ -88,6 +88,9 @@ void Context::updateColours(uint8_t logical, uint8_t physical) {
 	if (logical == tbgc) {
 		tbg = lookedup;
 	}
+	if (logical == tfgc || logical == tbgc) {
+		updateTextCursorBitmap();
+	}
 	if (logical == gfgc) {
 		gfg = lookedup;
 	}
@@ -130,6 +133,7 @@ void Context::moveTo() {
 void Context::plotLine(bool omitFirstPoint, bool omitLastPoint, bool usePattern, bool resetPattern) {
 	if (!textCursorActive()) {
 		// if we're in graphics mode, we need to move the cursor to the last point
+		// TODO think about this - why do we _not_ do this when the text cursor is active??
 		canvas->moveTo(p2.X, p2.Y);
 	}
 
@@ -530,6 +534,8 @@ void Context::setTextColour(uint8_t colour) {
 	else {
 		debug_log("vdu_colour: invalid colour %d\n\r", colour);
 	}
+
+	updateTextCursorBitmap();
 }
 
 // Set graphics colour (handles GCOL / VDU 18)
@@ -850,7 +856,11 @@ void Context::drawBitmap(uint16_t x, uint16_t y, bool compensateHeight, bool for
 }
 
 // Draw cursor
+// NB this function uses an XOR paint, so calling it will effectively
+// toggle the cursor visibility on or off
+// tracking of cursor visibility state is not done here
 //
+// TODO: Cursor - remove this when we're using a h/w cursor
 void Context::drawCursor(Point p) {
 	if (textCursorActive()) {
 		auto font = getFont();
@@ -877,7 +887,6 @@ void Context::setAffineTransform(uint8_t flags, uint16_t bufferId) {
 // Clear the screen
 //
 void Context::cls() {
-	hideCursor();
 	if (hasActiveSprites()) {
 		activateSprites(0);
 	}
@@ -891,7 +900,6 @@ void Context::cls() {
 	}
 	cursorHome();
 	setPagedMode(pagedMode);
-	showCursor();
 }
 
 // Clear the graphics area
@@ -922,6 +930,7 @@ void Context::resetGraphicsPainting() {
 	gbg = colourLookup[0x00];
 	gpofg = getPaintOptions(fabgl::PaintMode::Set, gpofg);
 	gpobg = getPaintOptions(fabgl::PaintMode::Set, gpobg);
+	updateTextCursorBitmap();
 }
 
 void Context::resetGraphicsOptions() {
@@ -941,11 +950,14 @@ void Context::resetGraphicsPositioning() {
 }
 
 void Context::resetTextPainting() {
+	tfgc = 15 % getVGAColourDepth();
+	tbgc = 0;
 	tfg = colourLookup[0x3F];
 	tbg = colourLookup[0x00];
 	tpo = getPaintOptions(fabgl::PaintMode::Set, tpo);
 	cpo = getPaintOptions(fabgl::PaintMode::XOR, tpo);
 	plottingText = false;
+	updateTextCursorBitmap();
 }
 
 // Reset graphics context, called after a mode change

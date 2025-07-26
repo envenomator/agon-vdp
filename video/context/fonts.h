@@ -60,6 +60,7 @@ void Context::changeFont(std::shared_ptr<fabgl::FontInfo> newFont, std::shared_p
 	if (textCursorActive()) {
 		textFont = newFont;
 		textFontData = fontData;
+		updateTextCursorBitmap();
 	} else {
 		graphicsFont = newFont;
 		graphicsFontData = fontData;
@@ -174,6 +175,9 @@ void Context::resetFonts() {
 	textFontData = nullptr;
 	graphicsFontData = nullptr;
 	setCharacterOverwrite(true);
+
+	// reset the text cursor sprite, as it's size may have changed
+	updateTextCursorBitmap();
 }
 
 bool Context::usingSystemFont() {

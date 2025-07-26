@@ -100,37 +100,31 @@ bool Context::cursorIsOffBottom() {
 
 // Functions to move the cursor to the edge of the viewport
 
-void Context::cursorEndRow() {
-	cursorEndRow(activeCursor, activeViewport);
-}
 void Context::cursorEndRow(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->Y = cursorBehaviour.invertVertical ? viewport->Y1 : (viewport->Y2 + 1 - getFont()->height - getYAdjustment());
 	} else {
 		cursor->X = cursorBehaviour.invertHorizontal ? viewport->X1 : (viewport->X2 + 1 - getFont()->width - getXAdjustment());
 	}
+	updateTextCursorPosition();
 }
 
-void Context::cursorTop() {
-	cursorTop(activeCursor, activeViewport);
-}
 void Context::cursorTop(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->X = cursorBehaviour.invertHorizontal ? (viewport->X2 + 1 - getFont()->width - getXAdjustment()) : viewport->X1;
 	} else {
 		cursor->Y = cursorBehaviour.invertVertical ? (viewport->Y2 + 1 - getFont()->height - getYAdjustment()) : viewport->Y1;
 	}
+	updateTextCursorPosition();
 }
 
-void Context::cursorEndCol() {
-	cursorEndCol(activeCursor, activeViewport);
-}
 void Context::cursorEndCol(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->X = cursorBehaviour.invertHorizontal ? viewport->X1 : (viewport->X2 + 1 - getFont()->width - getXAdjustment());
 	} else {
 		cursor->Y = cursorBehaviour.invertVertical ? viewport->Y1 : (viewport->Y2 + 1 - getFont()->height - getYAdjustment());
 	}
+	updateTextCursorPosition();
 }
 
 
@@ -209,40 +203,109 @@ void Context::ensureCursorInViewport(Rect viewport) {
 }
 
 
+// Cursor sprite functions
+
+void Context::deleteTextCursor() {
+	if (textCursorSprite != nullptr) {
+		// TODO: Cursor - remove the sprite from our sprite list...
+		// so we can then delete it
+		auto tempCursorSprite = textCursorSprite;
+		textCursorSprite = nullptr;
+	}
+	if (textCursorBitmap != nullptr) {
+		// Free the manually allocated data
+		if (textCursorBitmap->data != nullptr) {
+			free(textCursorBitmap->data);  // This is now correct since we used psram_alloc
+		}
+		textCursorBitmap = nullptr;
+	}
+}
+
+// TODO: Cursor - create/update/destroy the text cursor bitmap and sprite
+void Context::updateTextCursorBitmap() {
+	return;  // TODO: Cursor - currently non-functional, so just return
+	// if we're in teletext mode, we should ditch our bitmap and sprite
+	if (ttxtMode) {
+		deleteTextCursor();
+		return;
+	}
+	// otherwise...
+	// TODO: Cursor - when we support custom cursor bitmaps/sprites
+	//   we should just ensure that the sprite is properly set up
+	auto font = getFont();
+	auto width = std::min(((int)cursorHEnd), font->width - 1) - cursorHStart;
+	auto height = std::min(((int)cursorVEnd), font->height - 1) - cursorVStart;
+
+	// ensure the bitmap width or height is not negative
+	// - if so the cursor can just be deleted
+	if (width < 0 || height < 0) {
+		deleteTextCursor();
+		return;
+	}
+
+	// Cursor colour:
+	// to replicate existing cursor we need an XOR plot
+	// existing cursor does an XOR plot with bg then fg
+	// i think this means we can create a bitmap that is the XOR of the two colours
+	// so find the colour to use, which means getting RGB2222 values for tfg and tbg
+	auto r = (tfg.R ^ tbg.R) >> 6;
+	auto g = (tfg.G ^ tbg.G) >> 6;
+	auto b = (tfg.B ^ tbg.B) >> 6;
+	// create a cursor colour byte, effectively ARGB2222
+	uint8_t cursorColor = (3 << 6) | (b << 4) | (g << 2) | r;
+	// get a copy as RGB888
+	RGB888 cursorRGB(cursorColor, cursorColor, cursorColor);
+
+	// If this doesn't match our current bitmap, we need to create a new one
+	if (textCursorBitmap == nullptr
+		|| textCursorBitmap->width != width
+		|| textCursorBitmap->height != height
+		|| textCursorBitmap->foregroundColor != cursorRGB
+	) {
+		// delete the old cursor sprite and bitmap if they exist
+		deleteTextCursor();
+
+		// make a new bitmap for the cursor, first by creating a data block
+		auto data = (uint8_t*)ps_malloc(width * height);
+		if (!data) {
+			// if we can't allocate the data block, just return
+			return;
+		}
+		// fill the data block with the cursor colour
+		memset(data, cursorColor, width * height);
+
+		textCursorBitmap = make_shared_psram<Bitmap>(width, height, data, PixelFormat::RGBA2222, cursorRGB);
+	}
+
+	if (textCursorBitmap == nullptr) {
+		// if we couldn't create the bitmap, just return
+		return;
+	}
+
+	// Ensure our sprite exists, and if not create it
+
+
+
+
+}
+
+
 // Public cursor control functions
 //
 
 // Cursor management, behaviour, and appearance
 
-void Context::hideCursor() {
-	if (!cursorTemporarilyHidden && cursorShowing) {
-		cursorTemporarilyHidden = true;
-		if (cursorEnabled) {
-			drawCursor(textCursor);
-		}
-	}
-}
-
-void Context::showCursor() {
-	if (cursorTemporarilyHidden || !cursorFlashing) {
-		cursorShowing = true;
-		cursorTemporarilyHidden = false;
-		if (cursorEnabled) {
-			drawCursor(textCursor);
-		}
-	}
-}
-
 void Context::doCursorFlash() {
 	auto now = xTaskGetTickCountFromISR();
-	if (!cursorTemporarilyHidden && cursorFlashing && (now - cursorTime > cursorFlashRate)) {
+	if (cursorFlashing && (now - cursorTime > cursorFlashRate)) {
 		cursorTime = now;
-		cursorShowing = !cursorShowing;
 		if (ttxtMode) {
-			ttxt_instance.flash(cursorShowing);
+			ttxt_instance.flash();
 		}
-		if (cursorEnabled) {
-			drawCursor(textCursor);
+		if (cursorEnabled && textCursorSprite != nullptr) {
+			// TODO: Cursor - toggle cursor sprite visibility
+			textCursorSprite->visible = !textCursorSprite->visible;
+			// drawCursor(textCursor);
 		}
 		resetPagedModeCount();
 	}
@@ -267,6 +330,8 @@ inline void Context::setActiveCursor(CursorType type) {
 			setActiveViewport(ViewportType::Graphics);
 			break;
 	}
+	updateTextCursorPosition();
+	updateTextCursorVisibility();
 }
 
 inline void Context::setCursorBehaviour(uint8_t setting, uint8_t mask = 0) {
@@ -275,6 +340,7 @@ inline void Context::setCursorBehaviour(uint8_t setting, uint8_t mask = 0) {
 
 inline void Context::enableCursor(uint8_t enable) {
 	cursorEnabled = (bool) enable;
+	updateTextCursorVisibility();
 	if (enable == 2) {
 		cursorFlashing = false;
 	}
@@ -290,6 +356,7 @@ void Context::setCursorAppearance(uint8_t appearance) {
 			break;
 		case 1:		// cursor off
 			cursorEnabled = false;
+			updateTextCursorVisibility();
 			break;
 		case 2:		// fast flash
 			cursorFlashRate = pdMS_TO_TICKS(CURSOR_FAST_PHASE);
@@ -362,6 +429,8 @@ void Context::resetTextCursor() {
 	cursorHStart = 0;
 	cursorHEnd = 255;
 
+	updateTextCursorBitmap();
+
 	// reset text viewport
 	// and set the active viewport to text
 	textViewport =	Rect(0, 0, canvasW - 1, canvasH - 1);
@@ -377,9 +446,6 @@ void Context::resetTextCursor() {
 
 // Move the active cursor up a line
 //
-void Context::cursorUp() {
-	cursorUp(false);
-}
 void Context::cursorUp(bool moveOnly) {
 	auto font = getFont();
 	if (cursorBehaviour.flipXY) {
@@ -387,6 +453,7 @@ void Context::cursorUp(bool moveOnly) {
 	} else {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? font->height : -font->height);
 	}
+	updateTextCursorPosition();
 	if (moveOnly) {
 		return;
 	}
@@ -395,9 +462,6 @@ void Context::cursorUp(bool moveOnly) {
 
 // Move the active cursor down a line
 //
-void Context::cursorDown() {
-	cursorDown(false);
-}
 void Context::cursorDown(bool moveOnly) {
 	if (!moveOnly) cursorAutoNewline();
 	auto font = getFont();
@@ -406,6 +470,7 @@ void Context::cursorDown(bool moveOnly) {
 	} else {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? -font->height : font->height);
 	}
+	updateTextCursorPosition();
 	if (moveOnly) {
 		return;
 	}
@@ -443,6 +508,7 @@ void Context::cursorLeft() {
 	} else {
 		activeCursor->X += (cursorBehaviour.invertHorizontal ? font->width : -font->width);
 	}
+	updateTextCursorPosition();
 	if (cursorScrollOrWrap()) {
 		// wrapped, so move cursor up a line
 		cursorUp();
@@ -464,6 +530,7 @@ void Context::cursorRight(bool scrollProtect) {
 	} else {
 		activeCursor->X += (cursorBehaviour.invertHorizontal ? -font->width : font->width);
 	}
+	updateTextCursorPosition();
 	if (!scrollProtect) {
 		cursorAutoNewline();
 	}
@@ -471,22 +538,17 @@ void Context::cursorRight(bool scrollProtect) {
 
 // Move the active cursor to the leftmost position in the viewport
 //
-void Context::cursorCR() {
-	cursorCR(activeCursor, activeViewport);
-}
 void Context::cursorCR(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->Y = cursorBehaviour.invertVertical ? (viewport->Y2 + 1 - getFont()->height - getYAdjustment()) : viewport->Y1;
 	} else {
 		cursor->X = cursorBehaviour.invertHorizontal ? (viewport->X2 + 1 - getFont()->width - getXAdjustment()) : viewport->X1;
 	}
+	updateTextCursorPosition();
 }
 
 // Move the active cursor to the top-left position in the viewport
 //
-void Context::cursorHome() {
-	cursorHome(activeCursor, activeViewport);
-}
 void Context::cursorHome(Point * cursor, Rect * viewport) {
 	cursorCR(cursor, viewport);
 	cursorTop(cursor, viewport);
@@ -528,6 +590,7 @@ void Context::cursorTab(uint8_t x, uint8_t y) {
 		activeCursor->X = xPos;
 		activeCursor->Y = yPos;
 	}
+	updateTextCursorPosition();
 }
 
 void Context::cursorRelativeMove(int8_t x, int8_t y) {
@@ -536,6 +599,7 @@ void Context::cursorRelativeMove(int8_t x, int8_t y) {
 	// but does for wrapping and scrolling
 	activeCursor->X += x;
 	activeCursor->Y += y;
+	updateTextCursorPosition();
 
 	// TODO think more about this logic
 	if (!textCursorActive() || !cursorBehaviour.scrollProtect) {

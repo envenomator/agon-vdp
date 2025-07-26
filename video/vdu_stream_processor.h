@@ -285,15 +285,6 @@ class VDUStreamProcessor {
 
 		void processAllAvailable();
 		void processNext();
-		void doCursorFlash() {
-			context->doCursorFlash();
-		}
-		void hideCursor() {
-			context->hideCursor();
-		}
-		void showCursor() {
-			context->showCursor();
-		}
 
 		void vdu(uint8_t c, bool usePeek = true);
 
@@ -603,18 +594,14 @@ void VDUStreamProcessor::processNext() {
 
 	processEventQueue();
 	handleKeyboardAndMouse();
-	doCursorFlash();
+	context->doCursorFlash();
 
 	switch (getContext()->getProcessorState()) {
 		case VDUProcessorState::Active:
 			// process next byte, if available
 			if (byteAvailable()) {
-				hideCursor();
 				flushEcho();
 				vdu(readByte());
-				if (!byteAvailable()) {
-					showCursor();
-				}
 			}
 			break;
 		case VDUProcessorState::WaitingForFrames:
