@@ -11,7 +11,7 @@
 // 05/09/2022:		Renamed file
 // 20/02/2023:		Marked out non-standard CP-1252 characters in comments, fixed £ and `
 // 14/10/2023:		LB: Added CP1252 characters from BBC Basic for SDL2, kept all Agon ASCII characters as is, including £
-// 29/07/2025:		SS: Added "Graphics Extended" CP1252 characters with some adjustments as outlined
+// 29/07/2025:		Shawn Sijnstra: Added "Graphics Extended" CP1252 characters with some adjustments as outlined
 //
 // BBC Basic for SDL2 is
 // Copyright (c) 2021, Richard T. Russell, http://www.rtrussell.co.uk/
@@ -466,3 +466,4 @@ uint8_t * getCharPtr(std::shared_ptr<fabgl::FontInfo> font, uint8_t c) {
 		return (uint8_t *) (font->data + font->chptr[c]);
 	}
 }
+
