@@ -276,9 +276,8 @@ void VDUStreamProcessor::vdu_restorePalette() {
 	// Reset our current context graphics painting settings
 	context->resetGraphicsPainting();
 	// iterate over current possible colours, and call updateColoursInAllContexts
-	for (uint8_t i = getVGAColourDepth() - 1; i >= 0; i--) {
-		RGB222 physical = RGB222(colourLookup[i]);
-		Context::updateColoursInAllContexts(i, physical.R << 4 | physical.G << 2 | physical.B);
+	for (int8_t i = getVGAColourDepth() - 1; i >= 0; i--) {
+		Context::updateColoursInAllContexts(i, palette[i]);
 	}
 	setVDPVariable(VDPVAR_LAST_COLOUR_RED, 0);
 	setVDPVariable(VDPVAR_LAST_COLOUR_GREEN, 0);
