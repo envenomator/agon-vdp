@@ -233,7 +233,9 @@ void VDUStreamProcessor::vdu_sys_audio() {
 // Send an audio acknowledgement
 //
 void VDUStreamProcessor::sendAudioStatus(uint8_t channel, uint8_t status) {
+	// TODO: store channel and status in VDP variables to allow them to be changed
 	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_AUDIO);
+	// and build the packet using those variables
 	uint8_t packet[] = {
 		channel,
 		status,

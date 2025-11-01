@@ -112,6 +112,7 @@ void setVDPVariable(uint16_t flag, uint16_t value) {
 					disableMouse();
 				}
 				return;
+			// Mouse variables - several of these get saved into variables, so don't return
 			case VDPVAR_MOUSE_XPOS: {	// Mouse cursor X position (pixel coords)
 				uint16_t mouseY = getVDPVariable(VDPVAR_MOUSE_YPOS);
 				auto status = setMousePos(value, mouseY);

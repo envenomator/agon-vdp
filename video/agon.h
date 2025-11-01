@@ -438,6 +438,7 @@
 
 #define VDPVAR_FULL_DUPLEX			0x0101	// Full duplex UART comms flag
 #define TESTFLAG_VDPP_BUFFERSIZE	0x0102	// Buffer size on MOS for VDP protocol packets
+#define VDPVAR_VDPP_SUPPRESSNEXT	0x0103	// Suppress sending the next VDP protocol packet
 #define TESTFLAG_ECHO				0x0110	// Echo back received data, for redirect/spool
 // #define TESTFLAG_ECHO_SETTINGS	0x0111	// Settings for what will be echo'd
 #define VDPVAR_SYSTEM_BEGIN			0x0200	// General system settings start at 0x0200
@@ -498,6 +499,7 @@
 #define VDPVAR_KEYEVENT_SCANCODE2	0x026D	// Key scancode bytes 3 and 4
 #define VDPVAR_KEYEVENT_SCANCODE3	0x026E	// Key scancode bytes 5 and 6
 #define VDPVAR_KEYEVENT_SCANCODE4	0x026F	// Key scancode bytes 7 and 8
+#define VDPVAR_GENERALPOLL_BYTE		0x0280	// Last "general poll" byte received
 #define TESTFLAG_TILE_ENGINE		0x0300	// Tile engine flag (layers commands)
 #define VDPVAR_COPPER				0x0310	// Copper feature flag
 #define VDPVAR_AUTO_HW_SPRITES		0x0400	// Auto hardware sprites flag
