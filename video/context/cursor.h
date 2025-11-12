@@ -320,8 +320,11 @@ void Context::updateTextCursorBitmap() {
 // Cursor management, behaviour, and appearance
 
 void Context::doCursorFlash() {
+	if (!cursorFlashing || cursorTemporarilyHidden) {
+		return;
+	}
 	auto now = xTaskGetTickCountFromISR();
-	if (cursorFlashing && (now - cursorTime > cursorFlashRate)) {
+	if (now - cursorTime > cursorFlashRate) {
 		cursorTime = now;
 		if (ttxtMode) {
 			ttxt_instance.flash();
@@ -368,6 +371,21 @@ inline void Context::enableCursor(uint8_t enable) {
 	}
 	if (enable == 3) {
 		cursorFlashing = true;
+	}
+}
+inline void Context::hideCursor() {
+	// Temporarily hide the cursor if it's visible
+	if (!cursorTemporarilyHidden && (textCursorSprite != nullptr) && textCursorSprite->visible) {
+		textCursorSprite->visible = false;
+		cursorTemporarilyHidden = true;
+	}
+}
+
+inline void Context::showCursor() {
+	// Restore the cursor visibility if it was temporarily hidden
+	if ((textCursorSprite != nullptr) && cursorTemporarilyHidden) {
+		textCursorSprite->visible = true;
+		cursorTemporarilyHidden = false;
 	}
 }
 

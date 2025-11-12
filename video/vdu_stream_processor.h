@@ -589,6 +589,7 @@ void VDUStreamProcessor::processNext() {
 			if (outputStream != originalOutputStream) {
 				outputStream = originalOutputStream;
 			}
+			getContext()->showCursor();
 		}
 	}
 
@@ -601,6 +602,7 @@ void VDUStreamProcessor::processNext() {
 			// process next byte, if available
 			if (byteAvailable()) {
 				flushEcho();
+				getContext()->hideCursor();
 				vdu(readByte());
 			}
 			break;
@@ -611,11 +613,13 @@ void VDUStreamProcessor::processNext() {
 			if (shiftKeyPressed()) {
 				getContext()->setProcessorState(VDUProcessorState::Active);
 			}
+			getContext()->showCursor();
 			break;
 		case VDUProcessorState::CtrlShiftPaused:
 			if (!shiftKeyPressed() || !ctrlKeyPressed()) {
 				getContext()->setProcessorState(VDUProcessorState::Active);
 			}
+			getContext()->showCursor();
 			break;
 		default:
 			break;

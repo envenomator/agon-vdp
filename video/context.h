@@ -69,6 +69,7 @@ class Context {
 		// Cursor management data
 		bool			cursorEnabled = true;			// Cursor visibility
 		bool			cursorFlashing = true;			// Cursor is flashing
+		bool			cursorTemporarilyHidden = false;	// Cursor hidden for command processing
 		uint16_t		cursorFlashRate = pdMS_TO_TICKS(CURSOR_PHASE);	// Cursor flash rate
 		CursorBehaviour cursorBehaviour;				// Cursor behavior byte
 		Point			textCursor;						// Text cursor
@@ -161,6 +162,7 @@ class Context {
 		inline void updateTextCursorVisibility() {
 			if (textCursorSprite != nullptr) {
 				textCursorSprite->visible = cursorEnabled && textCursorActive();
+				cursorTemporarilyHidden = false;
 			}
 		}
 
@@ -238,6 +240,8 @@ class Context {
 		inline void setActiveCursor(CursorType type);
 		inline void setCursorBehaviour(uint8_t setting, uint8_t mask);
 		inline void enableCursor(uint8_t enable);
+		inline void hideCursor();
+		inline void showCursor();
 		void setCursorAppearance(uint8_t appearance);
 		void setCursorVStart(uint8_t start);
 		void setCursorVEnd(uint8_t end);
