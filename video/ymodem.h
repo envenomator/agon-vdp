@@ -6,13 +6,6 @@
 #include "CRC16.h"
 #include "CRC32.h"
 
-// Global variables
-extern HardwareSerial DBGSerial;
-bool                  session_aborted;
-static uint8_t        blockbuffer[1030];  // header + seq + ~seq + data + CRC
-static uint8_t        tmpbuffer[1024];    // padded block buffer
-static uint8_t        block0[128];
-
 // YMODEM protocol constants
 #define YMODEM_MAX_NAME_LENGTH         100
 #define YMODEM_BLOCK_SEQ_INDEX         1
@@ -20,9 +13,9 @@ static uint8_t        block0[128];
 #define YMODEM_BLOCK_HEADER            3
 #define YMODEM_BLOCK_TRAILER           2
 #define YMODEM_BLOCK_OVERHEAD          (YMODEM_BLOCK_HEADER + YMODEM_BLOCK_TRAILER)
-#define YMODEM_BLOCK_SIZE              128
-#define YMODEM_BLOCK_1K_SIZE           1024
-#define YMODEM_SCP_BLOCK               1024
+#define YMODEM_BLOCKSIZE_128           128
+#define YMODEM_BLOCKSIZE_1K            1024
+#define YMODEM_MOS_BLOCK               1024
 #define YMODEM_FILESIZEDATA_LENGTH     16
 #define YMODEM_MAXFILES                128
 #define YMODEM_SOH                     0x01  // 128 byte data block
@@ -32,9 +25,16 @@ static uint8_t        block0[128];
 #define YMODEM_NAK                     0x15
 #define YMODEM_CAN                     0x18
 #define YMODEM_DEFCRC16                0x43
-#define YMODEM_TIMEOUT                 1000
+#define YMODEM_TIMEOUT                 1200
 #define YMODEM_MAX_ERRORS              32
-#define YMODEM_MAX_RETRY               5
+#define YMODEM_MAX_RETRY               3
+
+// Global variables
+extern HardwareSerial DBGSerial;
+bool                  session_aborted;
+static uint8_t        fullblockbuffer[1+ YMODEM_BLOCKSIZE_1K + YMODEM_BLOCK_OVERHEAD];  // header + seq + ~seq + data + CRC
+static uint8_t        tmpbuffer[YMODEM_BLOCKSIZE_1K];                                   // padded block buffer
+static uint8_t        block0[YMODEM_BLOCKSIZE_128];
 
 typedef struct {
   char *buffer;
@@ -45,7 +45,7 @@ typedef struct {
 } fileinfo_t;
 
 typedef struct{
-  uint8_t  *data = blockbuffer;
+  uint8_t  *data = fullblockbuffer;
   uint8_t   blocktype;
   uint8_t   blocknumber;
   uint32_t  length;
@@ -141,7 +141,7 @@ static void get_block(block_t *block, uint8_t blocknumber) {
 	fabgl::VirtualKeyItem item;
   CRC16 crc16result(0x1021); // Ymodem uses CRC-16-CCITT polynomial
   int bytecount, block_size;
-  char file_length_data[YMODEM_BLOCK_SIZE];
+  char file_length_data[YMODEM_BLOCKSIZE_128];
   uint8_t input_byte;
   uint8_t *data_start = block->data;
   uint8_t *data = block->data;
@@ -171,12 +171,12 @@ static void get_block(block_t *block, uint8_t blocknumber) {
 
   switch (input_byte) {
     case YMODEM_SOH:
-      block_size = YMODEM_BLOCK_SIZE;
-      bytecount = YMODEM_BLOCK_SIZE + YMODEM_BLOCK_OVERHEAD - 1;
+      block_size = YMODEM_BLOCKSIZE_128;
+      bytecount = YMODEM_BLOCKSIZE_128 + YMODEM_BLOCK_OVERHEAD - 1;
   		break;
     case YMODEM_STX:
-      block_size = YMODEM_BLOCK_1K_SIZE;
-      bytecount = YMODEM_BLOCK_1K_SIZE + YMODEM_BLOCK_OVERHEAD - 1;
+      block_size = YMODEM_BLOCKSIZE_1K;
+      bytecount = YMODEM_BLOCKSIZE_1K + YMODEM_BLOCK_OVERHEAD - 1;
       break;
     case YMODEM_EOT:
     case YMODEM_CAN:
@@ -379,7 +379,7 @@ bool SCPSession::writeFiles(void) {
     remaining = f.filesize;
     dataptr = f.buffer;
     while(remaining) {
-      if(remaining > YMODEM_SCP_BLOCK) write_len = YMODEM_SCP_BLOCK;
+      if(remaining > YMODEM_MOS_BLOCK) write_len = YMODEM_MOS_BLOCK;
       else write_len = remaining;
 
       vsp->sendKeycodeByte(2,false); // Signal data block
@@ -538,33 +538,56 @@ static int send_block(uint8_t header, uint8_t block_num, const uint8_t *data, ui
   uint16_t crc_val = crc.calc();
 
   // --- send header ---
-  blockbuffer[p++] = header;       // SOH or STX
-  blockbuffer[p++] = block_num;
-  blockbuffer[p++] = 255 - block_num;
+  fullblockbuffer[p++] = header;       // SOH or STX
+  fullblockbuffer[p++] = block_num;
+  fullblockbuffer[p++] = 255 - block_num;
 
   // --- send data ---
-  memcpy(&blockbuffer[p], tmpbuffer, block_size);
+  memcpy(&fullblockbuffer[p], tmpbuffer, block_size);
   p += block_size;
 
   // --- send CRC16 ---
-  blockbuffer[p++] = (crc_val >> 8) & 0xFF;  // high byte
-  blockbuffer[p++] = crc_val & 0xFF;         // low byte
+  fullblockbuffer[p++] = (crc_val >> 8) & 0xFF;  // high byte
+  fullblockbuffer[p++] = crc_val & 0xFF;         // low byte
 
-  return io_write(blockbuffer, p);
+  return io_write(fullblockbuffer, p);
 }
 
 void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
   SCPSession session(this);
+  auto kb = getKeyboard();
+  fabgl::VirtualKeyItem item;
   uint8_t rx;
   uint32_t offset;
   uint8_t blocknumber;
   int retry;
+  bool startup = true;
 
-  printFmt("Sending data - VDP:%d 8N1 (YMODEM-1K)\r\n\r\n", SERIALBAUDRATE);
+  session_aborted = 0;
+
+  
 
   if (!session.open()) return;
-  if (!session.readFiles()) { session.close("Error reading files\r\n"); return; }
+  if (!session.readFiles()) { session.close("\r\n"); return; }
 
+  printFmt("Waiting for receiver - VDP:%d 8N1 (YMODEM-1K)", SERIALBAUDRATE);
+
+  // --- Wait for initial 'C' ---
+  /*
+  while(1) {
+    if(serialRx_byte_t(&rx, 100) && rx == YMODEM_DEFCRC16) break;
+    if (kb->getNextVirtualKey(&item, 0)) {
+      if(item.down) {
+        if(item.ASCII == 0x1B) {
+          session_aborted = true;
+          session.close("\r\nUser abort\r\n");
+          return;
+        }
+      }
+    }
+  }
+*/
+  printFmt("\rSending data - VDP:%d 8N1 (YMODEM-1K)        \r\n\r\n", SERIALBAUDRATE);
 
   for (int filecounter = 0; filecounter < session.getFilecount(); filecounter++) {
     const char* filename = session.getFilename(filecounter);
@@ -575,11 +598,15 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
     // --- Prepare block0 ---
     make_block0(block0, filename, filesize);
 
-    // --- Wait for initial 'C' ---
-    for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
-        if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_DEFCRC16) break;
-    }
-    if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
+    //if(!startup) {
+      // --- Wait for 'C' ---
+      for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
+          if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_DEFCRC16) break;
+          if(startup) retry = 0;
+      }
+      if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
+    //}
+    startup = false;
 
     // --- Send block0 ---
     for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
@@ -595,22 +622,72 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
     for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
         if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_DEFCRC16) break;
     }
-    if (retry >= YMODEM_MAX_RETRY) { printFmt("Max retires\r\n"); session.close("\r\nMax retries\r\n"); return; }
+    if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
 
-    // --- Send file data in 1K blocks ---
+    // --- Send file data ---
+    // First send as many 1K (STX) blocks as possible.
+    // Then send the remainder in 128-byte (SOH) blocks as rz expects.
     offset = 0;
     blocknumber = 1;
-    while (offset < filesize) {
-        uint16_t chunk = (filesize - offset > YMODEM_BLOCK_1K_SIZE) ? YMODEM_BLOCK_1K_SIZE : (filesize - offset);
+
+    // --- Send full 1K STX blocks ---
+    while ((filesize - offset) >= YMODEM_BLOCKSIZE_1K) {
         for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
-            send_block(YMODEM_STX, blocknumber, (uint8_t *)session.getFiledata(filecounter) + offset, chunk, YMODEM_BLOCK_1K_SIZE);
+            send_block(YMODEM_STX,
+                      blocknumber,
+                      (uint8_t *)session.getFiledata(filecounter) + offset,
+                      YMODEM_BLOCKSIZE_1K,
+                      YMODEM_BLOCKSIZE_1K);
 
             if (serialRx_byte_t(&rx, YMODEM_TIMEOUT)) {
-                if (rx == YMODEM_ACK) { offset += chunk; blocknumber++; break; }
-                if (rx == YMODEM_CAN) { session.close("Receiver aborts\r\n"); return; }
+                if (rx == YMODEM_ACK) {
+                    offset += YMODEM_BLOCKSIZE_1K;
+                    blocknumber++;
+                    break;
+                }
+                if (rx == YMODEM_CAN) {
+                    session.close("Receiver aborts\r\n");
+                    return;
+                }
             }
         }
-        if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
+        if (retry >= YMODEM_MAX_RETRY) {
+            session.close("\r\nMax retries\r\n");
+            return;
+        }
+        printFmt("\r%d/%d", offset, filesize);
+    }
+    // --- Send remainder using 128-byte SOH blocks ---
+    uint32_t remaining = filesize - offset;
+    while (remaining > 0) {
+        uint16_t chunk = (remaining > YMODEM_BLOCKSIZE_128)
+                            ? YMODEM_BLOCKSIZE_128
+                            : remaining;
+
+        for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
+            send_block(YMODEM_SOH,
+                      blocknumber,
+                      (uint8_t *)session.getFiledata(filecounter) + offset,
+                      chunk,                     // actual data length
+                      YMODEM_BLOCKSIZE_128);    // pad to 128 bytes
+
+            if (serialRx_byte_t(&rx, YMODEM_TIMEOUT)) {
+                if (rx == YMODEM_ACK) {
+                    offset += chunk;
+                    remaining -= chunk;
+                    blocknumber++;
+                    break;
+                }
+                if (rx == YMODEM_CAN) {
+                    session.close("Receiver aborts\r\n");
+                    return;
+                }
+            }
+        }
+        if (retry >= YMODEM_MAX_RETRY) {
+            session.close("\r\nMax retries\r\n");
+            return;
+        }
         printFmt("\r%d/%d", offset, filesize);
     }
 
@@ -620,16 +697,22 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
         io_write(&eot, 1);
         if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_ACK) break;
     }
-    if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
+    if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }  
   }
 
+  // --- Wait for final 'C' for block0
+  for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
+      if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_DEFCRC16) break;
+  }
+  if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
+  
   // --- Send final empty block0 safely ---
   memset(block0, 0, sizeof(block0));
   for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
       send_block(YMODEM_SOH, 0, block0, 128, 128);  // send at least 1 zero byte
       if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_ACK) break;
   }
-
+  
   wipe32chars_restartline();
   session.close("Done\r\n");
 }
@@ -659,11 +742,13 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
   char *ptr;
   size_t amount = 0;
 
+  send_reqcrc();
+
   while(!session_done && !session_aborted) {
     get_block(&block, blocknumber);
     if(block.length == 0) {
       if(blocknumber && (++timeout_counter > (YMODEM_MAX_RETRY))) {
-        printFmt("\r\nMax retries\r\n");
+        printFmt("\r\nTimeout\r\n");
         session_aborted = true;
       }
       else send_reqcrc();
