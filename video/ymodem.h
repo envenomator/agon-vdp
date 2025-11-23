@@ -31,10 +31,10 @@
 
 // Global variables
 extern HardwareSerial DBGSerial;
-bool                  session_aborted;
-static uint8_t        fullblockbuffer[1+ YMODEM_BLOCKSIZE_1K + YMODEM_BLOCK_OVERHEAD];  // header + seq + ~seq + data + CRC
-static uint8_t        tmpbuffer[YMODEM_BLOCKSIZE_1K];                                   // padded block buffer
-static uint8_t        block0[YMODEM_BLOCKSIZE_128];
+bool                  ymodem_session_aborted;
+static uint8_t        ymodem_fullblockbuffer[1+ YMODEM_BLOCKSIZE_1K + YMODEM_BLOCK_OVERHEAD];  // header + seq + ~seq + data + CRC
+static uint8_t        ymodem_tmpbuffer[YMODEM_BLOCKSIZE_1K];                                   // padded block buffer
+static uint8_t        ymodem_block0[YMODEM_BLOCKSIZE_128];
 
 typedef struct {
   char *buffer;
@@ -42,10 +42,10 @@ typedef struct {
   char *filename;
   size_t filesize;
   size_t received;
-} fileinfo_t;
+} ymodem_fileinfo_t;
 
 typedef struct{
-  uint8_t  *data = fullblockbuffer;
+  uint8_t  *data = ymodem_fullblockbuffer;
   uint8_t   blocktype;
   uint8_t   blocknumber;
   uint32_t  length;
@@ -55,7 +55,7 @@ typedef struct{
   bool      end_of_batch;
   bool      crc_verified;
   bool      correct_blocknumber;
-} block_t;
+} ymodem_block_t;
 
 // Read a single byte from the external serial port, until timeout
 static bool serialRx_byte_t (uint8_t *c, uint32_t timeout_ms) {
@@ -132,11 +132,11 @@ void VDUStreamProcessor::receiveKeycodeBytestream(char *ptr, uint32_t length) {
   }
 }
 
-static bool is_end_of_batch(block_t *block) {
+static bool is_end_of_batch(ymodem_block_t *block) {
   return ((block->length > YMODEM_BLOCK_HEADER) && (block->blocknumber == 0) && (block->data[YMODEM_BLOCK_HEADER] == 0));
 }
 
-static void get_block(block_t *block, uint8_t blocknumber) {
+static void get_block(ymodem_block_t *block, uint8_t blocknumber) {
   auto kb = getKeyboard();
 	fabgl::VirtualKeyItem item;
   CRC16 crc16result(0x1021); // Ymodem uses CRC-16-CCITT polynomial
@@ -156,7 +156,7 @@ static void get_block(block_t *block, uint8_t blocknumber) {
   if (kb->getNextVirtualKey(&item, 0)) {
 		if(item.down) {
 			if(item.ASCII == 0x1B) {
-				session_aborted = true;
+				ymodem_session_aborted = true;
 				return;
 			}
 		}
@@ -235,7 +235,6 @@ class SCPSession {
     void debug(void);
 
     bool addFile(const char* filename, size_t filesize);
-    //void checkFileDone(void);
     bool addData(const uint8_t *data, size_t length);
     bool writeFiles(void); // Sends all stored files to the SCP utility
     bool readFiles(void); // Reads all files from the SCP utility to memory
@@ -251,7 +250,7 @@ class SCPSession {
   void readData(size_t length); // reads data from the SCP utility
 
   size_t _filecount;
-  fileinfo_t *files;
+  ymodem_fileinfo_t *files;
 };
 
 const char * SCPSession::getFiledata(size_t index) {
@@ -285,7 +284,7 @@ void SCPSession::debug(void) {
 SCPSession::SCPSession(VDUStreamProcessor* obj) { 
   _filecount = 0; 
   vsp = obj;
-  files = (fileinfo_t *)heap_caps_malloc(YMODEM_MAXFILES * sizeof(fileinfo_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  files = (ymodem_fileinfo_t *)heap_caps_malloc(YMODEM_MAXFILES * sizeof(ymodem_fileinfo_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if(!files) throw std::runtime_error("Failed to allocate PSRAM");
 }
 
@@ -327,7 +326,6 @@ bool SCPSession::readFiles(void) {
     }
   }
   printFmt("\r\n");
-  //wipe32chars_restartline();
   return true;
 }
 
@@ -362,7 +360,7 @@ bool SCPSession::writeFiles(void) {
   for(int i = 0; i < _filecount; i++) totalbytes += files[i].filesize;
 
   for(int i = 0; i < _filecount; i++) {
-    fileinfo_t &f = files[i];
+    ymodem_fileinfo_t &f = files[i];
     
     // Signal incoming file
     vsp->sendKeycodeByte(1, false);
@@ -430,7 +428,7 @@ bool SCPSession::open(void) {
 }
 
 bool SCPSession::addFile(const char* filename, size_t filesize) {
-  fileinfo_t &f = files[_filecount];
+  ymodem_fileinfo_t &f = files[_filecount];
 
   if(_filecount == YMODEM_MAXFILES) return false;
 
@@ -458,7 +456,7 @@ void SCPSession::close(const char *message) {
 }
 
 bool SCPSession::addData(const uint8_t *data, size_t length) {
-  fileinfo_t &f = files[_filecount - 1];
+  ymodem_fileinfo_t &f = files[_filecount - 1];
 
   size_t used = f.bufptr - f.buffer;
   if (used + length > f.filesize) {
@@ -472,7 +470,7 @@ bool SCPSession::addData(const uint8_t *data, size_t length) {
 }
 
 void SCPSession::readData(size_t length) {
-  fileinfo_t &f = files[_filecount - 1];
+  ymodem_fileinfo_t &f = files[_filecount - 1];
 
   size_t used = f.bufptr - f.buffer;
   if (used + length > f.filesize) {
@@ -487,9 +485,9 @@ void SCPSession::readData(size_t length) {
 }
 
 //---------------------------------------------------------------
-// block0 (filename + size) - 128 bytes
+// ymodem_block0 (filename + size) - 128 bytes
 //---------------------------------------------------------------
-static void make_block0(uint8_t *buf, const char *filename, uint32_t filesize) {
+static void make_ymodem_block0(uint8_t *buf, const char *filename, uint32_t filesize) {
     memset(buf, 0, 128);  // clear block
 
     size_t pos = 0;
@@ -526,32 +524,32 @@ static int send_block(uint8_t header, uint8_t block_num, const uint8_t *data, ui
   int p = 0;
 
   // --- prepare padded block ---
-  memset(tmpbuffer, 0x1A, block_size);           // pad with CTRL-Z
+  memset(ymodem_tmpbuffer, 0x1A, block_size);           // pad with CTRL-Z
 
   if (data_len > 0 && data_len <= block_size)
-      memcpy(tmpbuffer, data, data_len);         // copy actual data
+      memcpy(ymodem_tmpbuffer, data, data_len);         // copy actual data
 
 
   // --- compute CRC over full padded block ---
   CRC16 crc(0x1021);
   crc.restart();
-  crc.add(tmpbuffer, block_size);
+  crc.add(ymodem_tmpbuffer, block_size);
   uint16_t crc_val = crc.calc();
 
   // --- send header ---
-  fullblockbuffer[p++] = header;       // SOH or STX
-  fullblockbuffer[p++] = block_num;
-  fullblockbuffer[p++] = 255 - block_num;
+  ymodem_fullblockbuffer[p++] = header;       // SOH or STX
+  ymodem_fullblockbuffer[p++] = block_num;
+  ymodem_fullblockbuffer[p++] = 255 - block_num;
 
   // --- send data ---
-  memcpy(&fullblockbuffer[p], tmpbuffer, block_size);
+  memcpy(&ymodem_fullblockbuffer[p], ymodem_tmpbuffer, block_size);
   p += block_size;
 
   // --- send CRC16 ---
-  fullblockbuffer[p++] = (crc_val >> 8) & 0xFF;  // high byte
-  fullblockbuffer[p++] = crc_val & 0xFF;         // low byte
+  ymodem_fullblockbuffer[p++] = (crc_val >> 8) & 0xFF;  // high byte
+  ymodem_fullblockbuffer[p++] = crc_val & 0xFF;         // low byte
 
-  return io_write(fullblockbuffer, p);
+  return io_write(ymodem_fullblockbuffer, p);
 }
 
 void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
@@ -564,7 +562,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
   int retry;
   bool startup = true;
 
-  session_aborted = 0;
+  ymodem_session_aborted = 0;
 
   if (!session.open()) return;
   if (!session.readFiles()) { session.close("\r\n"); return; }
@@ -577,7 +575,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
     if (kb->getNextVirtualKey(&item, 0)) {
       if(item.down) {
         if(item.ASCII == 0x1B) {
-          session_aborted = true;
+          ymodem_session_aborted = true;
           session.close("\r\nAborted\r\n");
           return;
         }
@@ -601,10 +599,10 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
     }
     else startup = false;
 
-    // --- Send block0 ---
-    make_block0(block0, filename, filesize);
+    // --- Send ymodem_block0 ---
+    make_ymodem_block0(ymodem_block0, filename, filesize);
     for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
-        send_block(YMODEM_SOH, 0, block0, 128, 128);
+        send_block(YMODEM_SOH, 0, ymodem_block0, 128, 128);
         if (serialRx_byte_t(&rx, YMODEM_TIMEOUT)) {
             if (rx == YMODEM_ACK) break;
             if (rx == YMODEM_CAN) { session.close("\r\nReceiver aborts\r\n"); return; }
@@ -694,16 +692,16 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
     if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }  
   }
 
-  // --- Wait for final 'C' for block0
+  // --- Wait for final 'C' for ymodem_block0
   for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
       if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_DEFCRC16) break;
   }
   if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
   
-  // --- Send final empty block0 safely ---
-  memset(block0, 0, sizeof(block0));
+  // --- Send final empty ymodem_block0 safely ---
+  memset(ymodem_block0, 0, sizeof(ymodem_block0));
   for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
-      send_block(YMODEM_SOH, 0, block0, 128, 128);  // send at least 1 zero byte
+      send_block(YMODEM_SOH, 0, ymodem_block0, 128, 128);  // send at least 1 zero byte
       if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_ACK) break;
   }
   
@@ -719,13 +717,13 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
   size_t offset,write_len;
   uint8_t blocknumber;
   uint8_t cancel_counter;
-  block_t block;
+  ymodem_block_t block;
 
   printFmt("Receiving data - VDP:%d 8N1 (YMODEM-1K)\r\n\r\n", SERIALBAUDRATE);
 
   errors = 0;
   timeout_counter = 0;
-  session_aborted = false;
+  ymodem_session_aborted = false;
   session_done = false;
   receiving_data = false;
   blocknumber = 0;
@@ -738,12 +736,12 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
 
   send_reqcrc();
 
-  while(!session_done && !session_aborted) {
+  while(!session_done && !ymodem_session_aborted) {
     get_block(&block, blocknumber);
     if(block.length == 0) {
       if(blocknumber && (++timeout_counter > (YMODEM_MAX_RETRY))) {
         printFmt("\r\nTimeout\r\n");
-        session_aborted = true;
+        ymodem_session_aborted = true;
       }
       else send_reqcrc();
       continue;
@@ -772,7 +770,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
             // Header block
             if(!session.addFile(block.filename, block.filesize)) {
               printFmt("\r\nError allocating memory\r\n");
-              session_aborted = true;
+              ymodem_session_aborted = true;
             }
             wipe32chars_restartline();
             printFmt("%d - %s\r\n", session.getFilecount(), block.filename);
@@ -805,7 +803,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
       case YMODEM_CAN:
         if(++cancel_counter > 1) {
           printFmt("\r\nRemote abort\r\n");
-          session_aborted = true;
+          ymodem_session_aborted = true;
         }
         break;
       default:
@@ -813,10 +811,10 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
     }
     if(errors > YMODEM_MAX_ERRORS) {
       printFmt("\r\nMax errors\r\n");
-      session_aborted = true;
+      ymodem_session_aborted = true;
     }
   }
-  if(session_aborted) send_abort();
+  if(ymodem_session_aborted) send_abort();
   session.writeFiles();
   session.close("\r\nDone\r\n");
 }
