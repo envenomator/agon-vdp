@@ -26,6 +26,7 @@
 #define YMODEM_CAN                     0x18
 #define YMODEM_DEFCRC16                0x43
 #define YMODEM_TIMEOUT                 1200
+#define YMODEM_FLUSHTIME               200
 #define YMODEM_MAX_ERRORS              32
 #define YMODEM_MAX_RETRY               3
 
@@ -82,6 +83,18 @@ static void send_reqcrc (void) {
 static void send_abort (void) {
   DBGSerial.write(YMODEM_CAN);
   DBGSerial.write(YMODEM_CAN);
+}
+
+// Eat all uart RX during a specific time period
+static void uart_flush(void) {
+  uint32_t timeReceived = millis();
+
+  while(millis() - timeReceived < YMODEM_FLUSHTIME) {
+    if(DBGSerial.available()) {
+      DBGSerial.read();
+    }    
+  }
+  return;
 }
 
 static int io_write(const uint8_t *data, int len) {
@@ -817,6 +830,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
   if(ymodem_session_aborted) send_abort();
   session.writeFiles();
   session.close("\r\nDone\r\n");
+  uart_flush();
 }
 
 #endif // YMODEM_H
