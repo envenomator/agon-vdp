@@ -326,7 +326,8 @@ bool SCPSession::readFiles(void) {
       return false;
     }
   }
-  wipe32chars_restartline();
+  printFmt("\r\n");
+  //wipe32chars_restartline();
   return true;
 }
 
@@ -565,29 +566,25 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
 
   session_aborted = 0;
 
-  
-
   if (!session.open()) return;
   if (!session.readFiles()) { session.close("\r\n"); return; }
 
   printFmt("Waiting for receiver - VDP:%d 8N1 (YMODEM-1K)", SERIALBAUDRATE);
 
   // --- Wait for initial 'C' ---
-  /*
   while(1) {
     if(serialRx_byte_t(&rx, 100) && rx == YMODEM_DEFCRC16) break;
     if (kb->getNextVirtualKey(&item, 0)) {
       if(item.down) {
         if(item.ASCII == 0x1B) {
           session_aborted = true;
-          session.close("\r\nUser abort\r\n");
+          session.close("\r\nAborted\r\n");
           return;
         }
       }
     }
   }
-*/
-  printFmt("\rSending data - VDP:%d 8N1 (YMODEM-1K)        \r\n\r\n", SERIALBAUDRATE);
+  printFmt("\r\nSending data\r\n\r\n");
 
   for (int filecounter = 0; filecounter < session.getFilecount(); filecounter++) {
     const char* filename = session.getFilename(filecounter);
@@ -595,20 +592,17 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
     wipe32chars_restartline();
     printFmt("%d - %s\r\n", filecounter+1, filename);
 
-    // --- Prepare block0 ---
-    make_block0(block0, filename, filesize);
-
-    //if(!startup) {
-      // --- Wait for 'C' ---
+    // --- Wait for 'C' to start subsequent block 0
+    if(!startup) {
       for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
           if (serialRx_byte_t(&rx, YMODEM_TIMEOUT) && rx == YMODEM_DEFCRC16) break;
-          if(startup) retry = 0;
       }
       if (retry >= YMODEM_MAX_RETRY) { session.close("\r\nMax retries\r\n"); return; }
-    //}
-    startup = false;
+    }
+    else startup = false;
 
     // --- Send block0 ---
+    make_block0(block0, filename, filesize);
     for (retry = 0; retry < YMODEM_MAX_RETRY; retry++) {
         send_block(YMODEM_SOH, 0, block0, 128, 128);
         if (serialRx_byte_t(&rx, YMODEM_TIMEOUT)) {
@@ -626,7 +620,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
 
     // --- Send file data ---
     // First send as many 1K (STX) blocks as possible.
-    // Then send the remainder in 128-byte (SOH) blocks as rz expects.
+    // Then send the remainder in 128-byte (SOH) blocks as older clients like rz expect.
     offset = 0;
     blocknumber = 1;
 
@@ -714,7 +708,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
   }
   
   wipe32chars_restartline();
-  session.close("Done\r\n");
+  session.close("\r\nDone\r\n");
 }
 
 void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
