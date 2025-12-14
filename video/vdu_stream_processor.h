@@ -254,7 +254,7 @@ class VDUStreamProcessor {
 		// End: Tile Engine
 
 	public:
-	    friend class SCPSession;
+	    friend class MOS_YmodemSession;
 		uint16_t id = 65535;
 		uint8_t contextId = 0;					// Current active context ID
 

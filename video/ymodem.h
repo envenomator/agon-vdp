@@ -238,10 +238,10 @@ static void get_block(ymodem_block_t *block, uint8_t blocknumber) {
   return;  
 }
 
-class SCPSession {
+class MOS_YmodemSession {
   public:
-    SCPSession(VDUStreamProcessor* obj);
-   ~SCPSession();
+    MOS_YmodemSession(VDUStreamProcessor* obj);
+   ~MOS_YmodemSession();
     bool open(void);
     void close(const char *message);
     
@@ -249,8 +249,8 @@ class SCPSession {
 
     bool addFile(const char* filename, size_t filesize);
     bool addData(const uint8_t *data, size_t length);
-    bool writeFiles(void); // Sends all stored files to the SCP utility
-    bool readFiles(void); // Reads all files from the SCP utility to memory
+    bool writeFiles(void); // Sends all stored files to the YMODEM utility
+    bool readFiles(void); // Reads all files from the YMODEM utility to memory
     size_t getFilecount(void);
     size_t getFilesize(void);
 
@@ -260,30 +260,30 @@ class SCPSession {
 
   private:
   VDUStreamProcessor *vsp;
-  void readData(size_t length); // reads data from the SCP utility
+  void readData(size_t length); // reads data from the YMODEM utility
 
   size_t _filecount;
   ymodem_fileinfo_t *files;
 };
 
-const char * SCPSession::getFiledata(size_t index) {
+const char * MOS_YmodemSession::getFiledata(size_t index) {
   if(index >= _filecount) return NULL;
   return files[index].buffer;
 }
 
-size_t SCPSession::getFilesize(unsigned index) {
+size_t MOS_YmodemSession::getFilesize(unsigned index) {
   if(index >= _filecount) return 0;
 
   return files[index].filesize;
 }
 
-const char * SCPSession::getFilename(unsigned index) {
+const char * MOS_YmodemSession::getFilename(unsigned index) {
   if(index >= _filecount) return NULL;
 
   return files[index].filename;
 }
 
-void SCPSession::debug(void) {
+void MOS_YmodemSession::debug(void) {
   CRC32 crc;
 
   printFmt("Current session data:\r\n");
@@ -294,14 +294,14 @@ void SCPSession::debug(void) {
   }
 }
 
-SCPSession::SCPSession(VDUStreamProcessor* obj) { 
+MOS_YmodemSession::MOS_YmodemSession(VDUStreamProcessor* obj) { 
   _filecount = 0; 
   vsp = obj;
   files = (ymodem_fileinfo_t *)heap_caps_malloc(YMODEM_MAXFILES * sizeof(ymodem_fileinfo_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if(!files) throw std::runtime_error("Failed to allocate PSRAM");
 }
 
-SCPSession::~SCPSession() {
+MOS_YmodemSession::~MOS_YmodemSession() {
   if(!files) return;
   
   for(int i = 0; i < _filecount; i++) {
@@ -311,11 +311,11 @@ SCPSession::~SCPSession() {
   free(files);
 }
 
-size_t SCPSession::getFilecount(void) {
+size_t MOS_YmodemSession::getFilecount(void) {
   return _filecount;
 }
 
-bool SCPSession::readFiles(void) {
+bool MOS_YmodemSession::readFiles(void) {
   size_t count, filename_length, filesize, crcexpected;
   char filename[YMODEM_MAX_NAME_LENGTH + 1];
   CRC32 crc;
@@ -328,7 +328,7 @@ bool SCPSession::readFiles(void) {
     vsp->receiveKeycodeBytestream(filename, filename_length);
     filename[filename_length] = 0;
     filesize = vsp->receiveKeycodeUINT32();
-    addFile(filename, filesize);
+    addFile(basename(filename), filesize);
     readData(filesize);
     crcexpected = vsp->receiveKeycodeUINT32();    
     crc.restart();
@@ -342,7 +342,7 @@ bool SCPSession::readFiles(void) {
   return true;
 }
 
-bool SCPSession::writeFiles(void) {
+bool MOS_YmodemSession::writeFiles(void) {
   size_t write_len, remaining, totalbytes, progress;
   char *dataptr;
   CRC32 crc;
@@ -431,16 +431,16 @@ bool SCPSession::writeFiles(void) {
   return true;
 }
 
-size_t SCPSession::getFilesize(void) {
+size_t MOS_YmodemSession::getFilesize(void) {
   return files[_filecount - 1].filesize;
 }
 
-bool SCPSession::open(void) {
+bool MOS_YmodemSession::open(void) {
   vsp->sendKeycodeByte('C',false);
   return true;
 }
 
-bool SCPSession::addFile(const char* filename, size_t filesize) {
+bool MOS_YmodemSession::addFile(const char* filename, size_t filesize) {
   ymodem_fileinfo_t &f = files[_filecount];
 
   if(_filecount == YMODEM_MAXFILES) return false;
@@ -463,12 +463,12 @@ bool SCPSession::addFile(const char* filename, size_t filesize) {
   return true;
 }
 
-void SCPSession::close(const char *message) {
+void MOS_YmodemSession::close(const char *message) {
   printFmt("%s", message);
   vsp->sendKeycodeByte(0, false); // Done
 }
 
-bool SCPSession::addData(const uint8_t *data, size_t length) {
+bool MOS_YmodemSession::addData(const uint8_t *data, size_t length) {
   ymodem_fileinfo_t &f = files[_filecount - 1];
 
   size_t used = f.bufptr - f.buffer;
@@ -482,7 +482,7 @@ bool SCPSession::addData(const uint8_t *data, size_t length) {
   return true;
 }
 
-void SCPSession::readData(size_t length) {
+void MOS_YmodemSession::readData(size_t length) {
   ymodem_fileinfo_t &f = files[_filecount - 1];
 
   size_t used = f.bufptr - f.buffer;
@@ -566,7 +566,7 @@ static int send_block(uint8_t header, uint8_t block_num, const uint8_t *data, ui
 }
 
 void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
-  SCPSession session(this);
+  MOS_YmodemSession session(this);
   auto kb = getKeyboard();
   fabgl::VirtualKeyItem item;
   uint8_t rx;
@@ -724,7 +724,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
 }
 
 void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
-  SCPSession session(this);
+  MOS_YmodemSession session(this);
   bool session_done;
   bool receiving_data;
   size_t errors,timeout_counter;
