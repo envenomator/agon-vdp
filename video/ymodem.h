@@ -577,6 +577,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
 
   ymodem_session_aborted = 0;
 
+  uart_flush();
   if (!session.open()) return;
   if (!session.readFiles()) { session.close("\r\n"); return; }
 
