@@ -4,7 +4,7 @@
 // Title:			Agon Tile Engine
 // Author:			Julian Regel
 // Created:			07/09/2024
-// Last Updated:	08/11/2024
+// Last Updated:	23/12/2025
 
 // This code included in VDP by adding:
 // #include "vdu_layers.h"
@@ -250,7 +250,7 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_init(uint8_t tileBankNum, uint8
 		case 0: {				// Tile Bank 0
 			
 			// Check if already exists
-			
+
 			if (tileBank0Data != NULL) {
 
 				// If already exists, then free and reallocate
@@ -347,23 +347,39 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_load(uint8_t tileBankNum, uint8
 
 	switch (tileBankNum) {
 		case 0: {				// Tile Bank 0
-			tileBankPtr = tileBank0Ptr;
+			if (tileBank0Data != NULL) {
+				tileBankPtr = tileBank0Ptr;
+			} else {
+				return;
+			}
 		} break;
 
 		case 1: {				// Tile Bank 1
-			tileBankPtr = tileBank1Ptr;
+			if (tileBank1Data != NULL) {
+				tileBankPtr = tileBank1Ptr;
+			} else {
+				return;
+			}
 		} break;
 
 		case 2: {				// Tile Bank 2
-			tileBankPtr = tileBank2Ptr;
+			if (tileBank2Data != NULL) {
+				tileBankPtr = tileBank2Ptr;
+			} else {
+				return;
+			}
 		} break;
 
 		case 3: {				// Tile Bank 3
-			tileBankPtr = tileBank3Ptr;
+			if (tileBank3Data != NULL) {
+				tileBankPtr = tileBank3Ptr;
+			} else {
+				return;
+			}
 		} break;
 
 		default: {
-			debug_log("vdu_sys_layers_tilebank_load: Invalid tilebank %d specified.\r\n",tileBankNum);
+			debug_log("vdu_sys_layers_tilebank_load: Invalid tilebank %d specified or tilebank not initialised.\r\n",tileBankNum);
 			return;
 		}
 	}
@@ -373,125 +389,41 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_load(uint8_t tileBankNum, uint8
 		destPixel = (tileId * 64) + n;
 		tileBankPtr[destPixel]= sourcePixel;
 	}
-
-
 }
 
 void VDUStreamProcessor::vdu_sys_layers_tilebank_draw(uint8_t tileBankNum, uint8_t tileId, uint8_t palette, uint8_t xPos, uint8_t yPos, uint8_t xOffset, uint8_t yOffset, uint8_t tileAttribute) {
 
-	// Initial release only supports tileBank 0
-
-	// if (tileBankNum != 0) {
-	//	debug_log("vdu_sys_layers_tilebank_draw: Invalid tileBankNum %d specified.\r\n",tileBankNum);
-	//	return;
-	// }
-	
 	// tileId 0 is special so cannot be drawn
 	if (tileId == 0) return;
 
 	int xPix, yPix;
 
-	switch (tileBankNum) {		// Which tile bank is being initiated?
+	// Check that the passed tileBankNum is valid and has been initialised.
+	switch (tileBankNum) {
 		case 0: {				// Tile Bank 0
-			if (tileBank0Data != NULL) {
-
-				// Check attribute bits 0 and 1 to get tile draw direction and call appropriate draw function
-				uint8_t tileFlip = tileAttribute & 0x03;
-		
-				switch (tileFlip) {
-					case 0x00:		// Normal drawing
-						writeTileToBuffer(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x01:		// Flip X
-						writeTileToBufferFlipX(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x02:		// Flip Y
-						writeTileToBufferFlipY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x03:		// Flip X and Y
-						writeTileToBufferFlipXY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-				}
-			} else {
+			if (tileBank0Data == NULL) {
 				debug_log("vdu_sys_layers_tilebank_draw: tileBank0Data not initialised.\r\n");
 				return;
 			}
 		} break;
 
 		case 1: {				// Tile Bank 1
-			if (tileBank1Data != NULL) {
-
-				// Check attribute bits 0 and 1 to get tile draw direction and call appropriate draw function
-				uint8_t tileFlip = tileAttribute & 0x03;
-		
-				switch (tileFlip) {
-					case 0x00:		// Normal drawing
-						writeTileToBuffer(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x01:		// Flip X
-						writeTileToBufferFlipX(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x02:		// Flip Y
-						writeTileToBufferFlipY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x03:		// Flip X and Y
-						writeTileToBufferFlipXY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-				}
-			} else {
+			if (tileBank1Data == NULL) {
 				debug_log("vdu_sys_layers_tilebank_draw: tileBank1Data not initialised.\r\n");
 				return;
 			}
 		} break;
 
 		case 2: {				// Tile Bank 2
-			if (tileBank2Data != NULL) {
-
-				// Check attribute bits 0 and 1 to get tile draw direction and call appropriate draw function
-				uint8_t tileFlip = tileAttribute & 0x03;
-		
-				switch (tileFlip) {
-					case 0x00:		// Normal drawing
-						writeTileToBuffer(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x01:		// Flip X
-						writeTileToBufferFlipX(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x02:		// Flip Y
-						writeTileToBufferFlipY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x03:		// Flip X and Y
-						writeTileToBufferFlipXY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-				}
-			} else {
+			if (tileBank2Data == NULL) {
 				debug_log("vdu_sys_layers_tilebank_draw: tileBank2Data not initialised.\r\n");
 				return;
 			}
 		} break;
 
 		case 3: {				// Tile Bank 3
-			if (tileBank3Data != NULL) {
-
-				// Check attribute bits 0 and 1 to get tile draw direction and call appropriate draw function
-				uint8_t tileFlip = tileAttribute & 0x03;
-		
-				switch (tileFlip) {
-					case 0x00:		// Normal drawing
-						writeTileToBuffer(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x01:		// Flip X
-						writeTileToBufferFlipX(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x02:		// Flip Y
-						writeTileToBufferFlipY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-					case 0x03:		// Flip X and Y
-						writeTileToBufferFlipXY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
-						break;
-				}
-			} else {
-				debug_log("vdu_sys_layers_tilebank_draw: tileBank3Data not initialised.\r\n");
+			if (tileBank2Data == NULL) {
+				debug_log("vdu_sys_layers_tilebank_draw: tileBank2Data not initialised.\r\n");
 				return;
 			}
 		} break;
@@ -500,6 +432,24 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_draw(uint8_t tileBankNum, uint8
 			debug_log("vdu_sys_layers_tilebank_load: Invalid tilebank %d specified.\r\n",tileBankNum);
 			return;
 		}
+	}
+
+	// Check attribute bits 0 and 1 to get tile draw direction and call appropriate draw function
+	uint8_t tileFlip = tileAttribute & 0x03;
+
+	switch (tileFlip) {
+		case 0x00:		// Normal drawing
+			writeTileToBuffer(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
+		case 0x01:		// Flip X
+			writeTileToBufferFlipX(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
+		case 0x02:		// Flip Y
+			writeTileToBufferFlipY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
+		case 0x03:		// Flip X and Y
+			writeTileToBufferFlipXY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
 	}
 
 	xPix = (xPos * 8) - xOffset;
