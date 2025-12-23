@@ -171,20 +171,26 @@ class VDUStreamProcessor {
 		void vdu_sys_layers_tilelayer_draw_layerbuffer(uint8_t tileLayerNum);
 		void vdu_sys_layers_tilelayer_draw(uint8_t tileLayerNum);
 		void vdu_sys_layers_tilelayer_free(uint8_t tileLayerNum);
-		void writeTileToBuffer(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
-		void writeTileToBufferFlipX(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
-		void writeTileToBufferFlipY(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
-		void writeTileToBufferFlipXY(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
+		void writeTileToBuffer(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
+		void writeTileToBufferFlipX(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
+		void writeTileToBufferFlipY(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
+		void writeTileToBufferFlipXY(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth);
 
-		void writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer,  uint8_t tileLayerHeight, uint8_t tileLayerWidth);
-		void writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
-		void writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
-		void writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
+		void writeTileToLayerBuffer(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer,  uint8_t tileLayerHeight, uint8_t tileLayerWidth);
+		void writeTileToLayerBufferFlipX(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
+		void writeTileToLayerBufferFlipY(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
+		void writeTileToLayerBufferFlipXY(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth);
 
 		// Tile Bank variables
 
 		void * tileBank0Data = NULL;
+		void * tileBank1Data = NULL;
+		void * tileBank2Data = NULL;
+		void * tileBank3Data = NULL;
 		uint8_t * tileBank0Ptr;
+		uint8_t * tileBank1Ptr;
+		uint8_t * tileBank2Ptr;
+		uint8_t * tileBank3Ptr;
 
 		Bitmap currentTile; 
 		uint8_t currentTileDataBuffer[64];
