@@ -1318,8 +1318,8 @@ bool Context::checkForVSYNC(bool hasPendingCommands) {
 				idleFrameCount++;
 			}
 			if (idleFrameCount == 3) {
-				// Reset paged mode count
 				resetPagedModeCount();
+				showCursor();
 			}
 		}
 		if (processorState == VDUProcessorState::WaitingForFrames) {

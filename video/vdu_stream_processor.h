@@ -590,7 +590,6 @@ void VDUStreamProcessor::processNext() {
 			if (outputStream != originalOutputStream) {
 				outputStream = originalOutputStream;
 			}
-			context->showCursor();
 		}
 	}
 
