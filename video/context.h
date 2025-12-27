@@ -65,6 +65,7 @@ class Context {
 		// VDU command processor state info
 		VDUProcessorState		processorState = VDUProcessorState::Active;	// Current VDU command processor state
 		uint8_t			waitForFrames = 0;				// Count of frames for WaitForFrames state
+		uint8_t			idleFrameCount = 0;				// Count of idle frames for idle detection
 		
 		// Cursor management data
 		bool			cursorEnabled = true;			// Cursor visibility
@@ -87,7 +88,7 @@ class Context {
 
 		// Paged mode tracking
 		PagedMode 		pagedMode = PagedMode::Disabled;	// Is output paged or not? Set by VDU 14 and 15
-		uint8_t			pagedModeCount = 0;				// Remaining rows in paged mode
+		int8_t			pagedModeCount = 0;				// Remaining rows in paged mode
 		uint8_t			pagedModeContext = 6;			// Number of context rows when paged mode enabled
 
 		// Viewport management data
@@ -133,6 +134,7 @@ class Context {
 		bool cursorIsOffLeft();
 		bool cursorIsOffTop();
 		bool cursorIsOffBottom();
+		bool cursorIsOnBottomRow();
 
 		void cursorEndRow(Point * cursor, Rect * viewport);
 		inline void cursorEndRow() {
@@ -147,14 +149,13 @@ class Context {
 			cursorEndCol(activeCursor, activeViewport);
 		}
 
-		void cursorAutoNewline();
 		void ensureCursorInViewport(Rect viewport);
 
 		inline void updateTextCursorPosition() {
 			if (textCursorActive() && textCursorSprite != nullptr) {
 				textCursorSprite->moveTo(
-					activeCursor->X + cursorHStart,
-					activeCursor->Y + cursorVStart
+					fabgl::imin(activeCursor->X, defaultViewport.X2 - (getFont()->width - 1)) + cursorHStart,
+					fabgl::imin(activeCursor->Y, defaultViewport.Y2 - (getFont()->height - 1)) + cursorVStart
 				);
 			}
 		}
@@ -232,7 +233,7 @@ class Context {
 		inline VDUProcessorState getProcessorState();
 		void setProcessorState(VDUProcessorState state);
 		void setWaitForFrames(uint8_t frames);
-		bool checkForVSYNC();
+		bool checkForVSYNC(bool hasPendingCommands);
 
 		// Cursor management functions
 		void doCursorFlash();
@@ -250,6 +251,7 @@ class Context {
 		void setPagedMode(PagedMode mode);
 		void setTempPagedMode();
 		void clearTempPagedMode();
+		void checkPagedMode();
 		void resetTextCursor();
 
 		void cursorUp(bool moveOnly);
@@ -262,7 +264,6 @@ class Context {
 		}
 		void cursorLeft();
 		void cursorRight();
-		void cursorRight(bool scrollProtect);
 		void cursorCR(Point * cursor, Rect * viewport);
 		inline void cursorCR() {
 			cursorCR(activeCursor, activeViewport);
@@ -277,6 +278,7 @@ class Context {
 		bool cursorScrollOrWrap();
 		void resetPagedModeCount();
 		uint8_t getCharsRemainingInLine();
+		bool cursorAutoNewline();
 
 		// Viewport management functions
 		void viewportReset();
@@ -1284,8 +1286,8 @@ void Context::setProcessorState(VDUProcessorState state) {
 		case VDUProcessorState::PagedModePaused:
 		case VDUProcessorState::CtrlShiftPaused:
 			if (state != processorState) {
-				cursorScrollOrWrap();
 				processorState = state;
+				idleFrameCount = 0;
 			}
 			break;
 	}
@@ -1301,9 +1303,21 @@ void Context::setWaitForFrames(uint8_t frames) {
 	setProcessorState(VDUProcessorState::WaitingForFrames);
 }
 
-bool Context::checkForVSYNC() {
+bool Context::checkForVSYNC(bool hasPendingCommands) {
+	if (hasPendingCommands) {
+		idleFrameCount = 0;
+	}
 	if (_VGAController->frameCounter != lastFrameCounter) {
 		lastFrameCounter = _VGAController->frameCounter;
+		if (!hasPendingCommands & processorState == VDUProcessorState::Active) {
+			if (idleFrameCount <= 3) {
+				idleFrameCount++;
+			}
+			if (idleFrameCount == 3) {
+				// Reset paged mode count
+				resetPagedModeCount();
+			}
+		}
 		if (processorState == VDUProcessorState::WaitingForFrames) {
 			waitForFrames--;
 			if (waitForFrames == 0) {

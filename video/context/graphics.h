@@ -786,7 +786,8 @@ void Context::plotString(const std::string& s) {
 	auto font = getFont();
 	// iterate over the string and plot each character
 	for (const char c : s) {
-		if (cursorBehaviour.scrollProtect) {
+		if (cursorIsOffRight()) {
+			// Cursor can only be off right-edge if scrollProtect is on
 			cursorAutoNewline();
 		}
 		if (ttxtMode) {
@@ -800,7 +801,21 @@ void Context::plotString(const std::string& s) {
 			}
 		}
 		if (!cursorBehaviour.xHold) {
-			cursorRight(cursorBehaviour.scrollProtect);
+			cursorRight();
+
+			if (cursorIsOffRight()) {
+				checkPagedMode();
+			}
+
+			// If scroll protect is off, or we are not on the last line, then auto newline
+			if (!cursorBehaviour.scrollProtect || !cursorIsOnBottomRow()) {
+				cursorAutoNewline();
+			}
+
+			// NB when paged mode is enabled and scroll-protect is on, and cursor is bottom right,
+			// printing a single character then doing a cursor-right will decrement the pagedModeCount
+			// even tho a new-line won't have occurred, so will eventually trigger a paged mode pause
+			// this is arguably incorrect behaviour, but we'll live with it
 		}
 	}
 }

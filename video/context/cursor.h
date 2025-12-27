@@ -97,6 +97,12 @@ bool Context::cursorIsOffBottom() {
 	return getNormalisedCursorPosition().Y >= getNormalisedViewportHeight();
 }
 
+bool Context::cursorIsOnBottomRow() {
+	// returns true if a newline would make cursorIsOffBottom true
+	auto fontSize = cursorBehaviour.flipXY ? getFont()->width : getFont()->height;
+	return getNormalisedCursorPosition().Y >= (getNormalisedViewportHeight() - fontSize);
+}
+
 
 // Functions to move the cursor to the edge of the viewport
 
@@ -185,11 +191,13 @@ bool Context::cursorScrollOrWrap() {
 	return true;
 }
 
-void Context::cursorAutoNewline() {
+bool Context::cursorAutoNewline() {
 	if (cursorIsOffRight() && (textCursorActive() || !cursorBehaviour.grNoSpecialActions)) {
 		cursorCR();
 		cursorDown();
+		return true;
 	}
+	return false;
 }
 
 void Context::ensureCursorInViewport(Rect viewport) {
@@ -332,7 +340,6 @@ void Context::doCursorFlash() {
 		if (textCursorActive() && cursorEnabled && textCursorSprite != nullptr) {
 			textCursorSprite->visible = !textCursorSprite->visible;
 		}
-		resetPagedModeCount();
 	}
 }
 
@@ -460,6 +467,26 @@ void Context::clearTempPagedMode() {
 	}
 }
 
+void Context::checkPagedMode() {
+	if (!textCursorActive()) {
+		return;
+	}
+	if ((pagedMode != PagedMode::Disabled)) {
+		pagedModeCount--;
+		if (pagedModeCount <= 0) {
+			setProcessorState(VDUProcessorState::PagedModePaused);
+			return;
+		}
+	}
+	if (ctrlKeyPressed()) {
+		if (shiftKeyPressed()) {
+			setProcessorState(VDUProcessorState::CtrlShiftPaused);
+		} else if (cursorCtrlPauseFrames > 0) {
+			setWaitForFrames(cursorCtrlPauseFrames);
+		}
+	}
+}
+
 // Reset basic cursor control
 // used when changing screen modes
 //
@@ -498,16 +525,14 @@ void Context::cursorUp(bool moveOnly) {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? font->height : -font->height);
 	}
 	updateTextCursorPosition();
-	if (moveOnly) {
-		return;
+	if (!moveOnly) {
+		cursorScrollOrWrap();
 	}
-	cursorScrollOrWrap();
 }
 
 // Move the active cursor down a line
 //
 void Context::cursorDown(bool moveOnly) {
-	if (!moveOnly) cursorAutoNewline();
 	auto font = getFont();
 	if (cursorBehaviour.flipXY) {
 		activeCursor->X += (cursorBehaviour.invertHorizontal ? -font->width : font->width);
@@ -515,32 +540,9 @@ void Context::cursorDown(bool moveOnly) {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? -font->height : font->height);
 	}
 	updateTextCursorPosition();
-	if (moveOnly) {
-		return;
+	if (!moveOnly) {
+		cursorScrollOrWrap();
 	}
-	//
-	// handle paging if we need to
-	//
-	if (textCursorActive() && (pagedMode != PagedMode::Disabled)) {
-		pagedModeCount--;
-		if (pagedModeCount <= 0) {
-			setProcessorState(VDUProcessorState::PagedModePaused);
-			return;
-		}
-	}
-	if (ctrlKeyPressed()) {
-		if (shiftKeyPressed()) {
-			setProcessorState(VDUProcessorState::CtrlShiftPaused);
-			return;
-		} else if (cursorCtrlPauseFrames > 0) {
-			setWaitForFrames(cursorCtrlPauseFrames);
-			return;
-		}
-	}
-	//
-	// Check if scroll required
-	//
-	cursorScrollOrWrap();
 }
 
 // Move the active cursor back one character
@@ -560,14 +562,10 @@ void Context::cursorLeft() {
 }
 
 // Advance the active cursor right one character
+// NB for scroll protect reasons, auto-newline must be handled by the caller
 //
 void Context::cursorRight() {
-	cursorRight(false);
-}
-void Context::cursorRight(bool scrollProtect) {
 	auto font = getFont();
-	// deal with any pending newline that we may have
-	cursorAutoNewline();
 
 	if (cursorBehaviour.flipXY) {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? -font->height : font->height);
@@ -575,9 +573,6 @@ void Context::cursorRight(bool scrollProtect) {
 		activeCursor->X += (cursorBehaviour.invertHorizontal ? -font->width : font->width);
 	}
 	updateTextCursorPosition();
-	if (!scrollProtect) {
-		cursorAutoNewline();
-	}
 }
 
 // Move the active cursor to the leftmost position in the viewport
@@ -648,7 +643,9 @@ void Context::cursorRelativeMove(int8_t x, int8_t y) {
 	// TODO think more about this logic
 	if (!textCursorActive() || !cursorBehaviour.scrollProtect) {
 		if (cursorIsOffRight()) {
-			cursorAutoNewline();
+			if (cursorAutoNewline()) {
+				checkPagedMode();
+			}
 		} else {
 			cursorScrollOrWrap();
 		}
@@ -670,11 +667,16 @@ void Context::resetPagedModeCount() {
 	pagedModeCount = max(pageRows - y, pageRows - pagedModeContext);
 }
 
+// Get number of characters remaining beyond the cursor position in the current line
 uint8_t Context::getCharsRemainingInLine() {
 	uint8_t x, y;
 	auto columns = getNormalisedViewportCharWidth();
 	getCursorTextPosition(&x, &y);
-	return columns - x;
+	int remaining = (columns - 1) - x;
+	if (remaining >= 0) {
+		return remaining;
+	}
+	return columns;
 }
 
 #endif	// CONTEXT_CURSOR_H
