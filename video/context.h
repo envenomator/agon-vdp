@@ -1288,6 +1288,10 @@ void Context::setProcessorState(VDUProcessorState state) {
 			if (state != processorState) {
 				processorState = state;
 				idleFrameCount = 0;
+				// When resuming from pause, handle any pending auto-newline for the text cursor
+				if (state == VDUProcessorState::Active && (!cursorBehaviour.scrollProtect || !cursorIsOnBottomRow())) {
+					cursorAutoNewline();
+				}
 			}
 			break;
 	}
