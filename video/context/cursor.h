@@ -600,23 +600,23 @@ void Context::cursorTab(uint8_t x, uint8_t y) {
 	int xPos, yPos;
 	if (cursorBehaviour.flipXY) {
 		if (cursorBehaviour.invertHorizontal) {
-			xPos = activeViewport->X2 - ((y + 1) * font->width) - getXAdjustment();
+			xPos = (activeViewport->X2 + 1) - ((y + 1) * font->width) - getXAdjustment();
 		} else {
 			xPos = activeViewport->X1 + (y * font->width);
 		}
 		if (cursorBehaviour.invertVertical) {
-			yPos = activeViewport->Y2 - ((x + 1) * font->height) - getYAdjustment();
+			yPos = (activeViewport->Y2 + 1) - ((x + 1) * font->height) - getYAdjustment();
 		} else {
 			yPos = activeViewport->Y1 + (x * font->height);
 		}
 	} else {
 		if (cursorBehaviour.invertHorizontal) {
-			xPos = activeViewport->X2 - ((x + 1) * font->width) - getXAdjustment();
+			xPos = (activeViewport->X2 + 1) - ((x + 1) * font->width) - getXAdjustment();
 		} else {
 			xPos = activeViewport->X1 + (x * font->width);
 		}
 		if (cursorBehaviour.invertVertical) {
-			yPos = activeViewport->Y2 - ((y + 1) * font->height) - getYAdjustment();
+			yPos = (activeViewport->Y2 + 1) - ((y + 1) * font->height) - getYAdjustment();
 		} else {
 			yPos = activeViewport->Y1 + (y * font->height);
 		}

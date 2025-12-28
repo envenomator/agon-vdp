@@ -154,8 +154,8 @@ class Context {
 		inline void updateTextCursorPosition() {
 			if (textCursorActive() && textCursorSprite != nullptr) {
 				textCursorSprite->moveTo(
-					fabgl::imin(activeCursor->X, defaultViewport.X2 - (getFont()->width - 1)) + cursorHStart,
-					fabgl::imin(activeCursor->Y, defaultViewport.Y2 - (getFont()->height - 1)) + cursorVStart
+					fabgl::imin(fabgl::imax(activeCursor->X, 0), defaultViewport.X2 - (getFont()->width - 1)) + cursorHStart,
+					fabgl::imin(fabgl::imax(activeCursor->Y, 0), defaultViewport.Y2 - (getFont()->height - 1)) + cursorVStart
 				);
 			}
 		}
