@@ -97,40 +97,40 @@ bool Context::cursorIsOffBottom() {
 	return getNormalisedCursorPosition().Y >= getNormalisedViewportHeight();
 }
 
+bool Context::cursorIsOnBottomRow() {
+	// returns true if a newline would make cursorIsOffBottom true
+	auto fontSize = cursorBehaviour.flipXY ? getFont()->width : getFont()->height;
+	return getNormalisedCursorPosition().Y >= (getNormalisedViewportHeight() - fontSize);
+}
+
 
 // Functions to move the cursor to the edge of the viewport
 
-void Context::cursorEndRow() {
-	cursorEndRow(activeCursor, activeViewport);
-}
 void Context::cursorEndRow(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->Y = cursorBehaviour.invertVertical ? viewport->Y1 : (viewport->Y2 + 1 - getFont()->height - getYAdjustment());
 	} else {
 		cursor->X = cursorBehaviour.invertHorizontal ? viewport->X1 : (viewport->X2 + 1 - getFont()->width - getXAdjustment());
 	}
+	updateTextCursorPosition();
 }
 
-void Context::cursorTop() {
-	cursorTop(activeCursor, activeViewport);
-}
 void Context::cursorTop(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->X = cursorBehaviour.invertHorizontal ? (viewport->X2 + 1 - getFont()->width - getXAdjustment()) : viewport->X1;
 	} else {
 		cursor->Y = cursorBehaviour.invertVertical ? (viewport->Y2 + 1 - getFont()->height - getYAdjustment()) : viewport->Y1;
 	}
+	updateTextCursorPosition();
 }
 
-void Context::cursorEndCol() {
-	cursorEndCol(activeCursor, activeViewport);
-}
 void Context::cursorEndCol(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->X = cursorBehaviour.invertHorizontal ? viewport->X1 : (viewport->X2 + 1 - getFont()->width - getXAdjustment());
 	} else {
 		cursor->Y = cursorBehaviour.invertVertical ? viewport->Y1 : (viewport->Y2 + 1 - getFont()->height - getYAdjustment());
 	}
+	updateTextCursorPosition();
 }
 
 
@@ -191,11 +191,13 @@ bool Context::cursorScrollOrWrap() {
 	return true;
 }
 
-void Context::cursorAutoNewline() {
+bool Context::cursorAutoNewline() {
 	if (cursorIsOffRight() && (textCursorActive() || !cursorBehaviour.grNoSpecialActions)) {
 		cursorCR();
 		cursorDown();
+		return true;
 	}
+	return false;
 }
 
 void Context::ensureCursorInViewport(Rect viewport) {
@@ -209,42 +211,135 @@ void Context::ensureCursorInViewport(Rect viewport) {
 }
 
 
+// Text cursor sprite functions
+
+void Context::deleteTextCursor() {
+	debug_log("Deleting text cursor sprite and bitmap\n");
+	_VGAController->setTextCursor(nullptr);
+	if (textCursorSprite != nullptr) {
+		textCursorSprite = nullptr;
+	}
+	if (textCursorBitmap != nullptr) {
+		if (textCursorBitmap->data != nullptr) {
+			heap_caps_free(textCursorBitmap->data);
+		}
+		textCursorBitmap = nullptr;
+	}
+}
+
+void Context::updateTextCursorBitmap() {
+	// TODO: Cursor - when we support custom cursor bitmaps/sprites
+	//   we should just ensure that the sprite is properly set up...
+	// but for teletext mode we should not support custom text cursors
+	auto font = getFont();
+	if (!font) {
+		return;
+	}
+	auto width = std::min(cursorHEnd, font->width) - cursorHStart;
+	auto height = std::min(cursorVEnd, font->height) - cursorVStart;
+
+	// ensure the bitmap width or height is not negative
+	// - if so the cursor can just be deleted
+	if (width <= 0 || height <= 0) {
+		deleteTextCursor();
+		return;
+	}
+
+	// Our cursor color is derived from fg and bg colours, XOR'd together
+	// we we do an XOR plot to ensure that we erase the bg and draw the fg colour
+	auto r = (tfg.R ^ tbg.R) >> 6;
+	auto g = (tfg.G ^ tbg.G) >> 6;
+	auto b = (tfg.B ^ tbg.B) >> 6;
+	// bitmap colour byte is RGBA2222 format, which uses bit order AABBGGRR
+	uint8_t cursorColor = (3 << 6) | (b << 4) | (g << 2) | r;
+	// We'll make a fake RGB888 colour to store as the foregroundColor on the bitmap
+	// which can be used to check whether the colour has changed - not a true RGB888 colour
+	RGB888 cursorRGB(cursorColor, cursorColor, cursorColor);
+
+	auto differentSize = textCursorBitmap == nullptr
+		|| textCursorBitmap->width != width
+		|| textCursorBitmap->height != height;
+
+	// If this info doesn't match our current bitmap, we may need to create a new one
+	if (differentSize || (textCursorBitmap->foregroundColor.R != cursorColor)) {
+		if (!differentSize) {
+			// size matches so colour must be different - update it
+			memset(textCursorBitmap->data, cursorColor, width * height);
+			// update the tracking colour on the bitmap
+			textCursorBitmap->foregroundColor = cursorRGB;
+			debug_log("Updated text cursor bitmap with colour %02x\n", cursorColor);
+		} else {
+			// delete the old cursor sprite and bitmap if they exist
+			deleteTextCursor();
+	
+			// make a new bitmap for the cursor, first by creating a data block
+			auto data = (uint8_t*)ps_malloc(width * height);
+			if (!data) {
+				// if we can't allocate the data block, just return
+				debug_log("Failed to allocate memory for text cursor bitmap data\n");
+				return;
+			}
+			// fill the data block with the cursor colour
+			memset(data, cursorColor, width * height);
+	
+			textCursorBitmap = make_shared_psram<Bitmap>(width, height, data, PixelFormat::RGBA2222, cursorRGB);
+			if (!textCursorBitmap) {
+				// if we couldn't create the bitmap, free the data and return
+				heap_caps_free(data);
+				debug_log("Failed to create text cursor bitmap\n");
+				return;
+			}
+			debug_log("Created text cursor bitmap %dx%d with colour %02x\n",
+				textCursorBitmap->width, textCursorBitmap->height, cursorColor);
+		}
+	}
+
+	// If we reach here we have a textCursorBitmap
+
+	// Ensure our sprite exists, and if not create it
+	if (textCursorSprite == nullptr) {
+		textCursorSprite = make_shared_psram<Sprite>();
+		if (!textCursorSprite) {
+			debug_log("Failed to create text cursor sprite\n");
+			return;
+		}
+		textCursorSprite->hardware = true;
+		textCursorSprite->paintOptions.mode = fabgl::PaintMode::XOR;
+		debug_log("Created new text cursor sprite\n");
+	}
+
+	if (textCursorSprite->getFrame() != textCursorBitmap.get()) {
+		// if the sprite's frame is not the same as the bitmap, update the cursor
+		debug_log("Updating text cursor sprite with new bitmap\n");
+		textCursorSprite->clearBitmaps();
+		textCursorSprite->addBitmap(textCursorBitmap.get());
+	}
+
+	updateTextCursorVisibility();
+	updateTextCursorPosition();
+
+	_VGAController->setTextCursor(textCursorSprite.get());
+}
+
+
 // Public cursor control functions
 //
 
 // Cursor management, behaviour, and appearance
 
-void Context::hideCursor() {
-	if (!cursorTemporarilyHidden && cursorShowing) {
-		cursorTemporarilyHidden = true;
-		if (cursorEnabled) {
-			drawCursor(textCursor);
-		}
-	}
-}
-
-void Context::showCursor() {
-	if (cursorTemporarilyHidden || !cursorFlashing) {
-		cursorShowing = true;
-		cursorTemporarilyHidden = false;
-		if (cursorEnabled) {
-			drawCursor(textCursor);
-		}
-	}
-}
-
 void Context::doCursorFlash() {
+	if (!cursorFlashing || cursorTemporarilyHidden) {
+		return;
+	}
 	auto now = xTaskGetTickCountFromISR();
-	if (!cursorTemporarilyHidden && cursorFlashing && (now - cursorTime > cursorFlashRate)) {
+	if (now - cursorTime > cursorFlashRate) {
 		cursorTime = now;
-		cursorShowing = !cursorShowing;
 		if (ttxtMode) {
-			ttxt_instance.flash(cursorShowing);
+			ttxt_instance.flash();
 		}
-		if (cursorEnabled) {
-			drawCursor(textCursor);
+		if (textCursorActive() && cursorEnabled && textCursorSprite != nullptr) {
+			textCursorSprite->visible = !textCursorSprite->visible;
 		}
-		resetPagedModeCount();
 	}
 }
 
@@ -259,6 +354,7 @@ inline void Context::setActiveCursor(CursorType type) {
 			changeFont(textFont, textFontData, 0);
 			setCharacterOverwrite(true);
 			setActiveViewport(ViewportType::Text);
+			updateTextCursorPosition();
 			break;
 		case CursorType::Graphics:
 			activeCursor = &p1;
@@ -267,6 +363,7 @@ inline void Context::setActiveCursor(CursorType type) {
 			setActiveViewport(ViewportType::Graphics);
 			break;
 	}
+	updateTextCursorVisibility();
 }
 
 inline void Context::setCursorBehaviour(uint8_t setting, uint8_t mask = 0) {
@@ -275,11 +372,27 @@ inline void Context::setCursorBehaviour(uint8_t setting, uint8_t mask = 0) {
 
 inline void Context::enableCursor(uint8_t enable) {
 	cursorEnabled = (bool) enable;
+	updateTextCursorVisibility();
 	if (enable == 2) {
 		cursorFlashing = false;
 	}
 	if (enable == 3) {
 		cursorFlashing = true;
+	}
+}
+inline void Context::hideCursor() {
+	// Temporarily hide the cursor if it's visible
+	if (!cursorTemporarilyHidden && (textCursorSprite != nullptr) && textCursorSprite->visible) {
+		textCursorSprite->visible = false;
+		cursorTemporarilyHidden = true;
+	}
+}
+
+inline void Context::showCursor() {
+	// Restore the cursor visibility if it was temporarily hidden
+	if ((textCursorSprite != nullptr) && cursorTemporarilyHidden) {
+		textCursorSprite->visible = true;
+		cursorTemporarilyHidden = false;
 	}
 }
 
@@ -290,6 +403,7 @@ void Context::setCursorAppearance(uint8_t appearance) {
 			break;
 		case 1:		// cursor off
 			cursorEnabled = false;
+			updateTextCursorVisibility();
 			break;
 		case 2:		// fast flash
 			cursorFlashRate = pdMS_TO_TICKS(CURSOR_FAST_PHASE);
@@ -304,18 +418,22 @@ void Context::setCursorAppearance(uint8_t appearance) {
 
 void Context::setCursorVStart(uint8_t start) {
 	cursorVStart = start;
+	updateTextCursorBitmap();
 }
 
 void Context::setCursorVEnd(uint8_t end) {
 	cursorVEnd = end;
+	updateTextCursorBitmap();
 }
 
 void Context::setCursorHStart(uint8_t start) {
 	cursorHStart = start;
+	updateTextCursorBitmap();
 }
 
 void Context::setCursorHEnd(uint8_t end) {
 	cursorHEnd = end;
+	updateTextCursorBitmap();
 }
 
 void Context::setPagedMode(PagedMode mode) {
@@ -349,6 +467,26 @@ void Context::clearTempPagedMode() {
 	}
 }
 
+void Context::checkPagedMode() {
+	if (!textCursorActive()) {
+		return;
+	}
+	if ((pagedMode != PagedMode::Disabled)) {
+		pagedModeCount--;
+		if (pagedModeCount <= 0) {
+			setProcessorState(VDUProcessorState::PagedModePaused);
+			return;
+		}
+	}
+	if (ctrlKeyPressed()) {
+		if (shiftKeyPressed()) {
+			setProcessorState(VDUProcessorState::CtrlShiftPaused);
+		} else if (cursorCtrlPauseFrames > 0) {
+			setWaitForFrames(cursorCtrlPauseFrames);
+		}
+	}
+}
+
 // Reset basic cursor control
 // used when changing screen modes
 //
@@ -361,6 +499,8 @@ void Context::resetTextCursor() {
 	cursorVEnd = 255;
 	cursorHStart = 0;
 	cursorHEnd = 255;
+
+	updateTextCursorBitmap();
 
 	// reset text viewport
 	// and set the active viewport to text
@@ -377,9 +517,6 @@ void Context::resetTextCursor() {
 
 // Move the active cursor up a line
 //
-void Context::cursorUp() {
-	cursorUp(false);
-}
 void Context::cursorUp(bool moveOnly) {
 	auto font = getFont();
 	if (cursorBehaviour.flipXY) {
@@ -387,51 +524,25 @@ void Context::cursorUp(bool moveOnly) {
 	} else {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? font->height : -font->height);
 	}
-	if (moveOnly) {
-		return;
+	updateTextCursorPosition();
+	if (!moveOnly) {
+		cursorScrollOrWrap();
 	}
-	cursorScrollOrWrap();
 }
 
 // Move the active cursor down a line
 //
-void Context::cursorDown() {
-	cursorDown(false);
-}
 void Context::cursorDown(bool moveOnly) {
-	if (!moveOnly) cursorAutoNewline();
 	auto font = getFont();
 	if (cursorBehaviour.flipXY) {
 		activeCursor->X += (cursorBehaviour.invertHorizontal ? -font->width : font->width);
 	} else {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? -font->height : font->height);
 	}
-	if (moveOnly) {
-		return;
+	updateTextCursorPosition();
+	if (!moveOnly) {
+		cursorScrollOrWrap();
 	}
-	//
-	// handle paging if we need to
-	//
-	if (textCursorActive() && (pagedMode != PagedMode::Disabled)) {
-		pagedModeCount--;
-		if (pagedModeCount <= 0) {
-			setProcessorState(VDUProcessorState::PagedModePaused);
-			return;
-		}
-	}
-	if (ctrlKeyPressed()) {
-		if (shiftKeyPressed()) {
-			setProcessorState(VDUProcessorState::CtrlShiftPaused);
-			return;
-		} else if (cursorCtrlPauseFrames > 0) {
-			setWaitForFrames(cursorCtrlPauseFrames);
-			return;
-		}
-	}
-	//
-	// Check if scroll required
-	//
-	cursorScrollOrWrap();
 }
 
 // Move the active cursor back one character
@@ -443,6 +554,7 @@ void Context::cursorLeft() {
 	} else {
 		activeCursor->X += (cursorBehaviour.invertHorizontal ? font->width : -font->width);
 	}
+	updateTextCursorPosition();
 	if (cursorScrollOrWrap()) {
 		// wrapped, so move cursor up a line
 		cursorUp();
@@ -450,43 +562,32 @@ void Context::cursorLeft() {
 }
 
 // Advance the active cursor right one character
+// NB for scroll protect reasons, auto-newline must be handled by the caller
 //
 void Context::cursorRight() {
-	cursorRight(false);
-}
-void Context::cursorRight(bool scrollProtect) {
 	auto font = getFont();
-	// deal with any pending newline that we may have
-	cursorAutoNewline();
 
 	if (cursorBehaviour.flipXY) {
 		activeCursor->Y += (cursorBehaviour.invertVertical ? -font->height : font->height);
 	} else {
 		activeCursor->X += (cursorBehaviour.invertHorizontal ? -font->width : font->width);
 	}
-	if (!scrollProtect) {
-		cursorAutoNewline();
-	}
+	updateTextCursorPosition();
 }
 
 // Move the active cursor to the leftmost position in the viewport
 //
-void Context::cursorCR() {
-	cursorCR(activeCursor, activeViewport);
-}
 void Context::cursorCR(Point * cursor, Rect * viewport) {
 	if (cursorBehaviour.flipXY) {
 		cursor->Y = cursorBehaviour.invertVertical ? (viewport->Y2 + 1 - getFont()->height - getYAdjustment()) : viewport->Y1;
 	} else {
 		cursor->X = cursorBehaviour.invertHorizontal ? (viewport->X2 + 1 - getFont()->width - getXAdjustment()) : viewport->X1;
 	}
+	updateTextCursorPosition();
 }
 
 // Move the active cursor to the top-left position in the viewport
 //
-void Context::cursorHome() {
-	cursorHome(activeCursor, activeViewport);
-}
 void Context::cursorHome(Point * cursor, Rect * viewport) {
 	cursorCR(cursor, viewport);
 	cursorTop(cursor, viewport);
@@ -499,23 +600,23 @@ void Context::cursorTab(uint8_t x, uint8_t y) {
 	int xPos, yPos;
 	if (cursorBehaviour.flipXY) {
 		if (cursorBehaviour.invertHorizontal) {
-			xPos = activeViewport->X2 - ((y + 1) * font->width) - getXAdjustment();
+			xPos = (activeViewport->X2 + 1) - ((y + 1) * font->width) - getXAdjustment();
 		} else {
 			xPos = activeViewport->X1 + (y * font->width);
 		}
 		if (cursorBehaviour.invertVertical) {
-			yPos = activeViewport->Y2 - ((x + 1) * font->height) - getYAdjustment();
+			yPos = (activeViewport->Y2 + 1) - ((x + 1) * font->height) - getYAdjustment();
 		} else {
 			yPos = activeViewport->Y1 + (x * font->height);
 		}
 	} else {
 		if (cursorBehaviour.invertHorizontal) {
-			xPos = activeViewport->X2 - ((x + 1) * font->width) - getXAdjustment();
+			xPos = (activeViewport->X2 + 1) - ((x + 1) * font->width) - getXAdjustment();
 		} else {
 			xPos = activeViewport->X1 + (x * font->width);
 		}
 		if (cursorBehaviour.invertVertical) {
-			yPos = activeViewport->Y2 - ((y + 1) * font->height) - getYAdjustment();
+			yPos = (activeViewport->Y2 + 1) - ((y + 1) * font->height) - getYAdjustment();
 		} else {
 			yPos = activeViewport->Y1 + (y * font->height);
 		}
@@ -528,6 +629,7 @@ void Context::cursorTab(uint8_t x, uint8_t y) {
 		activeCursor->X = xPos;
 		activeCursor->Y = yPos;
 	}
+	updateTextCursorPosition();
 }
 
 void Context::cursorRelativeMove(int8_t x, int8_t y) {
@@ -536,11 +638,14 @@ void Context::cursorRelativeMove(int8_t x, int8_t y) {
 	// but does for wrapping and scrolling
 	activeCursor->X += x;
 	activeCursor->Y += y;
+	updateTextCursorPosition();
 
 	// TODO think more about this logic
 	if (!textCursorActive() || !cursorBehaviour.scrollProtect) {
 		if (cursorIsOffRight()) {
-			cursorAutoNewline();
+			if (cursorAutoNewline()) {
+				checkPagedMode();
+			}
 		} else {
 			cursorScrollOrWrap();
 		}
@@ -562,11 +667,16 @@ void Context::resetPagedModeCount() {
 	pagedModeCount = max(pageRows - y, pageRows - pagedModeContext);
 }
 
+// Get number of characters remaining beyond the cursor position in the current line
 uint8_t Context::getCharsRemainingInLine() {
 	uint8_t x, y;
 	auto columns = getNormalisedViewportCharWidth();
 	getCursorTextPosition(&x, &y);
-	return columns - x;
+	int remaining = (columns - 1) - x;
+	if (remaining >= 0) {
+		return remaining;
+	}
+	return columns;
 }
 
 #endif	// CONTEXT_CURSOR_H

@@ -446,7 +446,8 @@ std::shared_ptr<WritableBufferStream> VDUStreamProcessor::bufferCreate(uint16_t 
 // use an ID of -1 (65535) to clear the output buffer (no output)
 // use an ID of 0 to reset the output buffer to it's original value
 //
-// TODO add a variant/command to adjust offset inside output stream
+// Use of this to capture VDP protocol output to a buffer is deprecated
+// as events and VDP variables cover that use case
 void VDUStreamProcessor::setOutputStream(uint16_t bufferId) {
 	if (bufferId == 65535) {
 		outputStream = nullptr;

@@ -65,16 +65,16 @@ class Context {
 		// VDU command processor state info
 		VDUProcessorState		processorState = VDUProcessorState::Active;	// Current VDU command processor state
 		uint8_t			waitForFrames = 0;				// Count of frames for WaitForFrames state
+		uint8_t			idleFrameCount = 0;				// Count of idle frames for idle detection
 		
 		// Cursor management data
 		bool			cursorEnabled = true;			// Cursor visibility
 		bool			cursorFlashing = true;			// Cursor is flashing
+		bool			cursorTemporarilyHidden = false;	// Cursor hidden for command processing
 		uint16_t		cursorFlashRate = pdMS_TO_TICKS(CURSOR_PHASE);	// Cursor flash rate
 		CursorBehaviour cursorBehaviour;				// Cursor behavior byte
 		Point			textCursor;						// Text cursor
 		Point *			activeCursor = &textCursor;		// Pointer to the active text cursor (textCursor or p1)
-		bool			cursorShowing = false;			// Cursor is currently showing on screen
-		bool			cursorTemporarilyHidden = false;	// Cursor is temporarily hidden for command processing
 		TickType_t		cursorTime;						// Time of last cursor flash event
 		uint8_t			cursorCtrlPauseFrames = 3;		// Number of frames to pause on newline when ctrl held
 
@@ -83,10 +83,12 @@ class Context {
 		uint8_t			cursorVEnd;						// Cursor vertical end
 		uint8_t			cursorHStart;					// Cursor horizontal start offset
 		uint8_t			cursorHEnd;						// Cursor horizontal end
+		std::shared_ptr<Bitmap>	textCursorBitmap = nullptr;		// Pointer to the text cursor bitmap
+		std::shared_ptr<Sprite>	textCursorSprite = nullptr;		// Pointer to the text cursor sprite
 
 		// Paged mode tracking
 		PagedMode 		pagedMode = PagedMode::Disabled;	// Is output paged or not? Set by VDU 14 and 15
-		uint8_t			pagedModeCount = 0;				// Remaining rows in paged mode
+		int8_t			pagedModeCount = 0;				// Remaining rows in paged mode
 		uint8_t			pagedModeContext = 6;			// Number of context rows when paged mode enabled
 
 		// Viewport management data
@@ -132,16 +134,41 @@ class Context {
 		bool cursorIsOffLeft();
 		bool cursorIsOffTop();
 		bool cursorIsOffBottom();
+		bool cursorIsOnBottomRow();
 
-		void cursorEndRow();
 		void cursorEndRow(Point * cursor, Rect * viewport);
-		void cursorTop();
+		inline void cursorEndRow() {
+			cursorEndRow(activeCursor, activeViewport);
+		}
 		void cursorTop(Point * cursor, Rect * viewport);
-		void cursorEndCol();
+		inline void cursorTop() {
+			cursorTop(activeCursor, activeViewport);
+		}
 		void cursorEndCol(Point * cursor, Rect * viewport);
+		inline void cursorEndCol() {
+			cursorEndCol(activeCursor, activeViewport);
+		}
 
-		void cursorAutoNewline();
 		void ensureCursorInViewport(Rect viewport);
+
+		inline void updateTextCursorPosition() {
+			if (textCursorActive() && textCursorSprite != nullptr) {
+				textCursorSprite->moveTo(
+					fabgl::imin(fabgl::imax(activeCursor->X, 0), defaultViewport.X2 - (getFont()->width - 1)) + cursorHStart,
+					fabgl::imin(fabgl::imax(activeCursor->Y, 0), defaultViewport.Y2 - (getFont()->height - 1)) + cursorVStart
+				);
+			}
+		}
+
+		inline void updateTextCursorVisibility() {
+			if (textCursorSprite != nullptr) {
+				textCursorSprite->visible = cursorEnabled && textCursorActive();
+				cursorTemporarilyHidden = false;
+			}
+		}
+
+		void deleteTextCursor();
+		void updateTextCursorBitmap();
 
 		// Viewport management functions
 		Rect * getViewport(ViewportType type);
@@ -206,16 +233,16 @@ class Context {
 		inline VDUProcessorState getProcessorState();
 		void setProcessorState(VDUProcessorState state);
 		void setWaitForFrames(uint8_t frames);
-		bool checkForVSYNC();
+		bool checkForVSYNC(bool hasPendingCommands);
 
 		// Cursor management functions
-		void hideCursor();
-		void showCursor();
 		void doCursorFlash();
 		inline bool textCursorActive();
 		inline void setActiveCursor(CursorType type);
 		inline void setCursorBehaviour(uint8_t setting, uint8_t mask);
 		inline void enableCursor(uint8_t enable);
+		inline void hideCursor();
+		inline void showCursor();
 		void setCursorAppearance(uint8_t appearance);
 		void setCursorVStart(uint8_t start);
 		void setCursorVEnd(uint8_t end);
@@ -224,25 +251,34 @@ class Context {
 		void setPagedMode(PagedMode mode);
 		void setTempPagedMode();
 		void clearTempPagedMode();
+		void checkPagedMode();
 		void resetTextCursor();
 
-		void cursorUp();
 		void cursorUp(bool moveOnly);
-		void cursorDown();
+		inline void cursorUp() {
+			cursorUp(false);
+		}
 		void cursorDown(bool moveOnly);
+		inline void cursorDown() {
+			cursorDown(false);
+		}
 		void cursorLeft();
 		void cursorRight();
-		void cursorRight(bool scrollProtect);
-		void cursorCR();
 		void cursorCR(Point * cursor, Rect * viewport);
-		void cursorHome();
+		inline void cursorCR() {
+			cursorCR(activeCursor, activeViewport);
+		}
 		void cursorHome(Point * cursor, Rect * viewport);
+		inline void cursorHome() {
+			cursorHome(activeCursor, activeViewport);
+		}
 		void cursorTab(uint8_t x, uint8_t y);
 		void cursorRelativeMove(int8_t x, int8_t y);
 		void getCursorTextPosition(uint8_t * x, uint8_t * y);
 		bool cursorScrollOrWrap();
 		void resetPagedModeCount();
 		uint8_t getCharsRemainingInLine();
+		bool cursorAutoNewline();
 
 		// Viewport management functions
 		void viewportReset();
@@ -299,7 +335,6 @@ class Context {
 		void plotString(const std::string & s);
 		void plotBackspace();
 		void drawBitmap(uint16_t x, uint16_t y, bool compensateHeight, bool forceSet);
-		void drawCursor(Point p);
 
 		void setAffineTransform(uint8_t flags, uint16_t bufferId);
 
@@ -345,10 +380,38 @@ Context::Context(const Context &c) {
 	cursorHStart = c.cursorHStart;
 	cursorHEnd = c.cursorHEnd;
 	// Data related to cursor rendering
-	cursorShowing = c.cursorShowing;
-	cursorTemporarilyHidden = c.cursorTemporarilyHidden;
 	cursorTime = c.cursorTime;
 	cursorCtrlPauseFrames = c.cursorCtrlPauseFrames;
+
+	// Clone our text cursor sprite, if we have one, and we can
+	// TODO: Cursor - update this when we support custom cursor bitmaps/sprites
+	if (c.textCursorBitmap) {
+		// Copy our bitmap data
+		auto data = (uint8_t*)ps_malloc(c.textCursorBitmap->width * c.textCursorBitmap->height);
+		if (data) {
+			memcpy(data, c.textCursorBitmap->data, c.textCursorBitmap->width * c.textCursorBitmap->height);
+			textCursorBitmap = std::make_shared<Bitmap>(c.textCursorBitmap->width, c.textCursorBitmap->height, data, c.textCursorBitmap->format, true);
+		} else {
+			textCursorBitmap = nullptr;
+		}
+		if (textCursorBitmap && c.textCursorSprite) {
+			// Create a new sprite for the text cursor
+			textCursorSprite = make_shared_psram<Sprite>();
+			if (textCursorSprite) {
+				textCursorSprite->addBitmap(textCursorBitmap.get());
+				textCursorSprite->moveTo(c.textCursorSprite->x, c.textCursorSprite->y);
+				textCursorSprite->paintOptions = c.textCursorSprite->paintOptions;
+				textCursorSprite->allowDraw = c.textCursorSprite->allowDraw;
+				textCursorSprite->hardware = c.textCursorSprite->hardware;
+				textCursorSprite->visible = c.textCursorSprite->visible;
+			}
+		} else {
+			textCursorSprite = nullptr;
+		}
+	} else {
+		textCursorBitmap = nullptr;
+		textCursorSprite = nullptr;
+	}
 
 	pagedMode = (PagedMode)((uint8_t)c.pagedMode & 1);
 	pagedModeCount = c.pagedModeCount;
@@ -1223,8 +1286,12 @@ void Context::setProcessorState(VDUProcessorState state) {
 		case VDUProcessorState::PagedModePaused:
 		case VDUProcessorState::CtrlShiftPaused:
 			if (state != processorState) {
-				cursorScrollOrWrap();
 				processorState = state;
+				idleFrameCount = 0;
+				// When resuming from pause, handle any pending auto-newline for the text cursor
+				if (state == VDUProcessorState::Active && (!cursorBehaviour.scrollProtect || !cursorIsOnBottomRow())) {
+					cursorAutoNewline();
+				}
 			}
 			break;
 	}
@@ -1240,9 +1307,21 @@ void Context::setWaitForFrames(uint8_t frames) {
 	setProcessorState(VDUProcessorState::WaitingForFrames);
 }
 
-bool Context::checkForVSYNC() {
+bool Context::checkForVSYNC(bool hasPendingCommands) {
+	if (hasPendingCommands) {
+		idleFrameCount = 0;
+	}
 	if (_VGAController->frameCounter != lastFrameCounter) {
 		lastFrameCounter = _VGAController->frameCounter;
+		if (!hasPendingCommands & processorState == VDUProcessorState::Active) {
+			if (idleFrameCount <= 3) {
+				idleFrameCount++;
+			}
+			if (idleFrameCount == 3) {
+				resetPagedModeCount();
+				showCursor();
+			}
+		}
 		if (processorState == VDUProcessorState::WaitingForFrames) {
 			waitForFrames--;
 			if (waitForFrames == 0) {

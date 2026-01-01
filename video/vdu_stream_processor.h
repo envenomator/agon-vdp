@@ -285,15 +285,6 @@ class VDUStreamProcessor {
 
 		void processAllAvailable();
 		void processNext();
-		void doCursorFlash() {
-			context->doCursorFlash();
-		}
-		void hideCursor() {
-			context->hideCursor();
-		}
-		void showCursor() {
-			context->showCursor();
-		}
 
 		void vdu(uint8_t c, bool usePeek = true);
 
@@ -589,11 +580,12 @@ void VDUStreamProcessor::processAllAvailable() {
 // Process next command from the stream
 //
 void VDUStreamProcessor::processNext() {
-	if (getContext()->checkForVSYNC()) {
+	auto hasPending = byteAvailable();
+	if (context->checkForVSYNC(hasPending)) {
 		// TODO consider making this an event pushed to the queue?
 		bufferCallCallbacks(CALLBACK_VSYNC);
-		if (!byteAvailable()) {
-			getContext()->clearTempPagedMode();
+		if (!hasPending) {
+			context->clearTempPagedMode();
 			// Ensure output stream changes on main VDU processor are temporary
 			if (outputStream != originalOutputStream) {
 				outputStream = originalOutputStream;
@@ -603,18 +595,15 @@ void VDUStreamProcessor::processNext() {
 
 	processEventQueue();
 	handleKeyboardAndMouse();
-	doCursorFlash();
+	context->doCursorFlash();
 
-	switch (getContext()->getProcessorState()) {
+	switch (context->getProcessorState()) {
 		case VDUProcessorState::Active:
 			// process next byte, if available
-			if (byteAvailable()) {
-				hideCursor();
+			if (hasPending) {
 				flushEcho();
+				context->hideCursor();
 				vdu(readByte());
-				if (!byteAvailable()) {
-					showCursor();
-				}
 			}
 			break;
 		case VDUProcessorState::WaitingForFrames:
@@ -622,13 +611,15 @@ void VDUStreamProcessor::processNext() {
 			break;
 		case VDUProcessorState::PagedModePaused:
 			if (shiftKeyPressed()) {
-				getContext()->setProcessorState(VDUProcessorState::Active);
+				context->setProcessorState(VDUProcessorState::Active);
 			}
+			context->showCursor();
 			break;
 		case VDUProcessorState::CtrlShiftPaused:
 			if (!shiftKeyPressed() || !ctrlKeyPressed()) {
-				getContext()->setProcessorState(VDUProcessorState::Active);
+				context->setProcessorState(VDUProcessorState::Active);
 			}
+			context->showCursor();
 			break;
 		default:
 			break;
@@ -715,8 +706,10 @@ void VDUStreamProcessor::handleKeyboardAndMouse() {
 		// Perform callback for keyboard h/w event
 		bufferCallCallbacks(CALLBACK_KEYBOARD);
 
+		auto keyDown = getVDPVariable(VDPVAR_KEYEVENT_DOWN);
+
 		// Handle some control keys
-		if (controlKeys && getVDPVariable(VDPVAR_KEYEVENT_DOWN)) {
+		if (controlKeys && keyDown) {
 			uint16_t keycode = getVDPVariable(VDPVAR_KEYEVENT_KEYCODE);
 			uint8_t ascii = keycode >> 8;
 			switch (ascii) {
@@ -731,6 +724,15 @@ void VDUStreamProcessor::handleKeyboardAndMouse() {
 				case 16:
 					// control-P toggles "printer" on R.T.Russell's BASIC
 					printerOn = !printerOn;
+			}
+		}
+		// If we're pausing for paged mode and escape is pressed, resume
+		if (keyDown && context->getProcessorState() == VDUProcessorState::PagedModePaused) {
+			uint16_t keycode = getVDPVariable(VDPVAR_KEYEVENT_KEYCODE);
+			uint8_t ascii = keycode >> 8;
+			if (ascii == 27) {
+				context->setProcessorState(VDUProcessorState::Active);
+				context->showCursor();
 			}
 		}
 

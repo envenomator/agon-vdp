@@ -56,7 +56,7 @@ public:
   void draw_char(int x, int y, unsigned char c);
   void scroll(int x, int y);
   void cls();
-  void flash(bool f);
+  void flash();
   void set_window(int left, int bottom, int right, int top);
 private:
   fabgl::FontInfo m_font;
@@ -623,9 +623,9 @@ void agon_ttxt::cls()
 }
 
 
-void agon_ttxt::flash(bool f)
+void agon_ttxt::flash()
 {
-  m_flashPhase = f;
+  m_flashPhase = !m_flashPhase;
   bool fUpdated = false;
   RGB888 oldbg = m_bg;
   RGB888 oldfg = m_fg;

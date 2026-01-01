@@ -96,9 +96,14 @@ void VDUStreamProcessor::vdu(uint8_t c, bool usePeek) {
 			}
 			break;
 		case 0x09:	// Cursor Right
+			context->cursorAutoNewline();
 			context->cursorRight();
+			if (context->cursorAutoNewline()) {
+				context->checkPagedMode();
+			}
 			break;
 		case 0x0A:	// Cursor Down
+			context->checkPagedMode();
 			context->cursorDown();
 			break;
 		case 0x0B:	// Cursor Up
@@ -193,8 +198,8 @@ void VDUStreamProcessor::vdu_print(char c, bool usePeek) {
 	// gather our string for printing
 	if (usePeek) {
 		// For compatibility with newline things, we max out to the remaining chars in line
-		auto limit = fabgl::imin(15, getContext()->getCharsRemainingInLine());
-		while (--limit) {
+		auto limit = fabgl::imin(15, context->getCharsRemainingInLine());
+		while (limit) {
 			if (!byteAvailable()) {
 				break;
 			}
@@ -209,8 +214,10 @@ void VDUStreamProcessor::vdu_print(char c, bool usePeek) {
 					break;
 				}
 				s += (char)next;
+				limit--;
 			} else if ((next >= 0x20 && next <= 0x7E) || (next >= 0x80 && next <= 0xFF)) {
 				s += (char)next;
+				limit--;
 				readByte();		// discard byte we have peeked
 			} else {
 				break;
@@ -276,9 +283,8 @@ void VDUStreamProcessor::vdu_restorePalette() {
 	// Reset our current context graphics painting settings
 	context->resetGraphicsPainting();
 	// iterate over current possible colours, and call updateColoursInAllContexts
-	for (uint8_t i = getVGAColourDepth() - 1; i >= 0; i--) {
-		RGB222 physical = RGB222(colourLookup[i]);
-		Context::updateColoursInAllContexts(i, physical.R << 4 | physical.G << 2 | physical.B);
+	for (int8_t i = getVGAColourDepth() - 1; i >= 0; i--) {
+		Context::updateColoursInAllContexts(i, palette[i]);
 	}
 	setVDPVariable(VDPVAR_LAST_COLOUR_RED, 0);
 	setVDPVariable(VDPVAR_LAST_COLOUR_GREEN, 0);
@@ -417,6 +423,7 @@ void VDUStreamProcessor::vdu_cursorTab() {
 		auto y = readByte_t();
 		if (y >= 0) {
 			context->cursorTab(x, y);
+			context->resetPagedModeCount();
 		}
 	}
 }
