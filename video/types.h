@@ -323,3 +323,13 @@ int32_t textToWord(const char * text) {
 	debug_log("converted text %s is %u\n\r", text,val);
 	return (val < 65536 ? val : -1);
 };
+
+enum class KeyboardEvent {};
+enum class MouseEvent {};
+
+template<class... Ts>
+struct overloaded : Ts... {
+	using Ts::operator()...;
+};
+// Deduction guide for C++17
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
