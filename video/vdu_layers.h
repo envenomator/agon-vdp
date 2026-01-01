@@ -4,7 +4,7 @@
 // Title:			Agon Tile Engine
 // Author:			Julian Regel
 // Created:			07/09/2024
-// Last Updated:	08/11/2024
+// Last Updated:	23/12/2025
 
 // This code included in VDP by adding:
 // #include "vdu_layers.h"
@@ -250,7 +250,7 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_init(uint8_t tileBankNum, uint8
 		case 0: {				// Tile Bank 0
 			
 			// Check if already exists
-			
+
 			if (tileBank0Data != NULL) {
 
 				// If already exists, then free and reallocate
@@ -272,7 +272,58 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_init(uint8_t tileBankNum, uint8
 					*(tileBank0Ptr + i) = 0; 
 			}
 			else {
-				// Something went wrong. Calll the free function to clear up the memory
+				// Something went wrong. Call the free function to clear up the memory
+				vdu_sys_layers_tilebank_free(tileBankNum);
+			}
+		} break;
+
+		case 1: {				// Tile Bank 1
+			if (tileBank1Data != NULL) {
+				vdu_sys_layers_tilebank_free(tileBankNum);
+			}
+			tileBank1Data = heap_caps_malloc(tileBankBufferSize,MALLOC_CAP_SPIRAM);
+
+			if (tileBank1Data != NULL) {
+				tileBank1Ptr = (uint8_t *)tileBank1Data;
+
+				for (auto i=0; i <tileBankBufferSize; i++)
+					*(tileBank1Ptr + i) = 0; 
+			}
+			else {
+				vdu_sys_layers_tilebank_free(tileBankNum);
+			}
+		} break;
+
+		case 2: {				// Tile Bank 2
+			if (tileBank2Data != NULL) {
+				vdu_sys_layers_tilebank_free(tileBankNum);
+			}
+			tileBank2Data = heap_caps_malloc(tileBankBufferSize,MALLOC_CAP_SPIRAM);
+
+			if (tileBank2Data != NULL) {
+				tileBank2Ptr = (uint8_t *)tileBank2Data;
+
+				for (auto i=0; i <tileBankBufferSize; i++)
+					*(tileBank2Ptr + i) = 0; 
+			}
+			else {
+				vdu_sys_layers_tilebank_free(tileBankNum);
+			}
+		} break;
+
+		case 3: {				// Tile Bank 3
+			if (tileBank3Data != NULL) {
+				vdu_sys_layers_tilebank_free(tileBankNum);
+			}
+			tileBank3Data = heap_caps_malloc(tileBankBufferSize,MALLOC_CAP_SPIRAM);
+
+			if (tileBank3Data != NULL) {
+				tileBank3Ptr = (uint8_t *)tileBank3Data;
+
+				for (auto i=0; i <tileBankBufferSize; i++)
+					*(tileBank3Ptr + i) = 0; 
+			}
+			else {
 				vdu_sys_layers_tilebank_free(tileBankNum);
 			}
 		} break;
@@ -289,77 +340,128 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_init(uint8_t tileBankNum, uint8
 
 void VDUStreamProcessor::vdu_sys_layers_tilebank_load(uint8_t tileBankNum, uint8_t tileId) {
 
-	// Note: In the initial release of the Tile Engine, the tileBankNum is ignored as there is only
-	// a single tile bank.
-
 	uint8_t sourcePixel = 0;
 	int destPixel = 0;
 
-	// Only do something if the tilebank exists
+	uint8_t * tileBankPtr;
 
-	if (tileBank0Data != NULL) {
-	
-		// Initial implementation is hardcoded to 8x8 tiles and 64 colours (i.e., 64 pixels * 1 byte per pixel)
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			if (tileBank0Data != NULL) {
+				tileBankPtr = tileBank0Ptr;
+			} else {
+				return;
+			}
+		} break;
 
-		for (auto n=0; n<64; n++) {
-			sourcePixel = readByte_t();
-			destPixel = (tileId * 64) + n;
-			tileBank0Ptr[destPixel]= sourcePixel;
+		case 1: {				// Tile Bank 1
+			if (tileBank1Data != NULL) {
+				tileBankPtr = tileBank1Ptr;
+			} else {
+				return;
+			}
+		} break;
+
+		case 2: {				// Tile Bank 2
+			if (tileBank2Data != NULL) {
+				tileBankPtr = tileBank2Ptr;
+			} else {
+				return;
+			}
+		} break;
+
+		case 3: {				// Tile Bank 3
+			if (tileBank3Data != NULL) {
+				tileBankPtr = tileBank3Ptr;
+			} else {
+				return;
+			}
+		} break;
+
+		default: {
+			debug_log("vdu_sys_layers_tilebank_load: Invalid tilebank %d specified or tilebank not initialised.\r\n",tileBankNum);
+			return;
 		}
-	} else {
-		debug_log("vdu_sys_layers_tilebank_load: tileBank0Data is not defined.\r\n");
+	}
+
+	for (auto n=0; n<64; n++) {
+		sourcePixel = readByte_t();
+		destPixel = (tileId * 64) + n;
+		tileBankPtr[destPixel]= sourcePixel;
 	}
 }
 
 void VDUStreamProcessor::vdu_sys_layers_tilebank_draw(uint8_t tileBankNum, uint8_t tileId, uint8_t palette, uint8_t xPos, uint8_t yPos, uint8_t xOffset, uint8_t yOffset, uint8_t tileAttribute) {
 
-	// Initial release only supports tileBank 0
-
-	if (tileBankNum != 0) {
-		debug_log("vdu_sys_layers_tilebank_draw: Invalid tileBankNum %d specified.\r\n",tileBankNum);
-		return;
-	}
-	
 	// tileId 0 is special so cannot be drawn
 	if (tileId == 0) return;
 
 	int xPix, yPix;
 
-	if (tileBank0Data != NULL) {
+	// Check that the passed tileBankNum is valid and has been initialised.
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			if (tileBank0Data == NULL) {
+				debug_log("vdu_sys_layers_tilebank_draw: tileBank0Data not initialised.\r\n");
+				return;
+			}
+		} break;
 
-		// Check attribute bits 0 and 1 to get tile draw direction and call appropriate draw function
+		case 1: {				// Tile Bank 1
+			if (tileBank1Data == NULL) {
+				debug_log("vdu_sys_layers_tilebank_draw: tileBank1Data not initialised.\r\n");
+				return;
+			}
+		} break;
 
-		uint8_t tileFlip = tileAttribute & 0x03;
+		case 2: {				// Tile Bank 2
+			if (tileBank2Data == NULL) {
+				debug_log("vdu_sys_layers_tilebank_draw: tileBank2Data not initialised.\r\n");
+				return;
+			}
+		} break;
 
-		switch (tileFlip) {
-			case 0x00:		// Normal drawing
-				writeTileToBuffer(tileId, 0, 0, currentTileDataBuffer, 1);
-				break;
-			case 0x01:		// Flip X
-				writeTileToBufferFlipX(tileId, 0, 0, currentTileDataBuffer, 1);
-				break;
-			case 0x02:		// Flip Y
-				writeTileToBufferFlipY(tileId, 0, 0, currentTileDataBuffer, 1);
-				break;
-			case 0x03:		// Flip X and Y
-				writeTileToBufferFlipXY(tileId, 0, 0, currentTileDataBuffer, 1);
-				break;
+		case 3: {				// Tile Bank 3
+			if (tileBank2Data == NULL) {
+				debug_log("vdu_sys_layers_tilebank_draw: tileBank2Data not initialised.\r\n");
+				return;
+			}
+		} break;
+
+		default: {
+			debug_log("vdu_sys_layers_tilebank_load: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
 		}
-
-		xPix = (xPos * 8) - xOffset;
-		yPix = (yPos * 8) - yOffset;
-
-		currentTile = Bitmap(8, 8, currentTileDataBuffer, PixelFormat::RGBA2222);
-
-		// Draw Tile
-
-		canvas->drawBitmap(xPix,yPix,&currentTile);
-
-		waitPlotCompletion();		// If this is not set then tiles do not display correctly if called rapidly.
-
-	} else {
-		debug_log("vdu_sys_layers_tilebank_draw: tileBank0Data not initialised.\r\n");
 	}
+
+	// Check attribute bits 0 and 1 to get tile draw direction and call appropriate draw function
+	uint8_t tileFlip = tileAttribute & 0x03;
+
+	switch (tileFlip) {
+		case 0x00:		// Normal drawing
+			writeTileToBuffer(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
+		case 0x01:		// Flip X
+			writeTileToBufferFlipX(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
+		case 0x02:		// Flip Y
+			writeTileToBufferFlipY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
+		case 0x03:		// Flip X and Y
+			writeTileToBufferFlipXY(tileBankNum, tileId, 0, 0, currentTileDataBuffer, 1);
+			break;
+	}
+
+	xPix = (xPos * 8) - xOffset;
+	yPix = (yPos * 8) - yOffset;
+
+	currentTile = Bitmap(8, 8, currentTileDataBuffer, PixelFormat::RGBA2222);
+
+	// Draw Tile
+
+	canvas->drawBitmap(xPix,yPix,&currentTile);
+
+	waitPlotCompletion();		// If this is not set then tiles do not display correctly if called rapidly.
 }
 
 void VDUStreamProcessor::vdu_sys_layers_tilebank_free(uint8_t tileBankNum) {
@@ -373,6 +475,30 @@ void VDUStreamProcessor::vdu_sys_layers_tilebank_free(uint8_t tileBankNum) {
 				debug_log("vdu_sys_layers_tilebank_free: Freeing tileBank0Data.\r\n");
 				heap_caps_free(tileBank0Data);
 				tileBank0Data = NULL;
+			}
+		} break;
+
+		case 1: {
+			if (tileBank1Data != NULL) {
+				debug_log("vdu_sys_layers_tilebank_free: Freeing tileBank1Data.\r\n");
+				heap_caps_free(tileBank1Data);
+				tileBank1Data = NULL;
+			}
+		} break;
+
+		case 2: {
+			if (tileBank2Data != NULL) {
+				debug_log("vdu_sys_layers_tilebank_free: Freeing tileBank2Data.\r\n");
+				heap_caps_free(tileBank2Data);
+				tileBank2Data = NULL;
+			}
+		} break;
+
+		case 3: {
+			if (tileBank3Data != NULL) {
+				debug_log("vdu_sys_layers_tilebank_free: Freeing tileBank3Data.\r\n");
+				heap_caps_free(tileBank3Data);
+				tileBank3Data = NULL;
 			}
 		} break;
 		
@@ -876,22 +1002,26 @@ void VDUStreamProcessor::vdu_sys_layers_tilelayer_update_layerbuffer(uint8_t til
 
 			} else {				// Tile is normal and should be processed accordingly
 
-				// Check attribute to get tile draw direction and call appropriate draw function
+				// Check attribute to get the tile bank number (from bits 2 and 3)
+
+				uint8_t tileBankNum = (tileAttribute & 0x0C) >> 2;
+
+				// Check attribute to get tile draw direction (from bits 0 and 1) and call appropriate draw function
 
 				uint8_t tileFlip = tileAttribute & 0x03;
 
 				switch (tileFlip) {
 					case 0x00:		// Normal drawing
-						writeTileToLayerBuffer(tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
+						writeTileToLayerBuffer(tileBankNum, tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
 						break;
 					case 0x01:		// Flip X
-						writeTileToLayerBufferFlipX(tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
+						writeTileToLayerBufferFlipX(tileBankNum, tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
 						break;
 					case 0x02:		// Flip Y
-						writeTileToLayerBufferFlipY(tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
+						writeTileToLayerBufferFlipY(tileBankNum, tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
 						break;
 					case 0x03:		// Flip X and Y
-						writeTileToLayerBufferFlipXY(tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
+						writeTileToLayerBufferFlipXY(tileBankNum, tileId, xPos, xOffset, yPos, yOffset, tileLayer0Ptr, tileLayerHeight, tileLayerWidth);
 						break;
 					default:
 						debug_log("Invalid tileAttribute value: %d\r\n",tileFlip);
@@ -1019,7 +1149,7 @@ void VDUStreamProcessor::vdu_sys_layers_tilelayer_free(uint8_t tileLayerNum) {
 
 // Tile drawing functions
 
-void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
 
 /*
 		The drawing loop reads from the source in a direction depending on the flip parameters:
@@ -1045,6 +1175,33 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 	int destPixelCount;
 	int destPixelStart;
 
+	// Point tileBankPtr to the specified tileBank
+
+	uint8_t * tileBankPtr;				
+
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			tileBankPtr = tileBank0Ptr;
+		} break;
+
+		case 1: {				// Tile Bank 1
+			tileBankPtr = tileBank1Ptr;
+		} break;
+
+		case 2: {				// Tile Bank 2
+			tileBankPtr = tileBank2Ptr;
+		} break;
+
+		case 3: {				// Tile Bank 3
+			tileBankPtr = tileBank3Ptr;
+		} break;
+
+		default: {
+			debug_log("writeTileToLayerBuffer: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
+		}
+	}
+
 	/* 
 	Set the start and end variables used in the source reading loop depending on whether it is the first, middle or last column:
 	- For the first column (0), then potentially only read the last "n" pixels in the tile row.
@@ -1065,7 +1222,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=0; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}  			
@@ -1082,7 +1239,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=xOffset; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			} 
@@ -1097,7 +1254,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=0; x<xOffset; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1118,7 +1275,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=0; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1136,7 +1293,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=xOffset; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1151,7 +1308,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=0; x<xOffset; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			} 
@@ -1173,7 +1330,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=0; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1193,7 +1350,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=xOffset; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1211,7 +1368,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 				for (auto x=0; x<xOffset; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1222,7 +1379,7 @@ void VDUStreamProcessor::writeTileToLayerBuffer(uint8_t tileId, uint8_t xPos, ui
 	}
 }
 
-void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
 
 	int sourceTile = (tileId * 64);
 	int sourcePixel = 0;
@@ -1233,6 +1390,33 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 	int destPixel;
 	int destPixelCount;
 	int destPixelStart;
+
+		// Point tileBankPtr to the specified tileBank
+
+		uint8_t * tileBankPtr;				
+
+		switch (tileBankNum) {
+			case 0: {				// Tile Bank 0
+				tileBankPtr = tileBank0Ptr;
+			} break;
+	
+			case 1: {				// Tile Bank 1
+				tileBankPtr = tileBank1Ptr;
+			} break;
+	
+			case 2: {				// Tile Bank 2
+				tileBankPtr = tileBank2Ptr;
+			} break;
+	
+			case 3: {				// Tile Bank 3
+				tileBankPtr = tileBank3Ptr;
+			} break;
+	
+			default: {
+				debug_log("writeTileToLayerBufferFlipX: Invalid tilebank %d specified.\r\n",tileBankNum);
+				return;
+			}
+		}
 
 	if (yPos > 0 && yPos < tileLayerHeight) {
 
@@ -1247,7 +1431,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=7; x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}  
@@ -1264,7 +1448,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=(7-xOffset); x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			} 
@@ -1279,7 +1463,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=7; x>(7-xOffset); x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1300,7 +1484,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=7; x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1318,7 +1502,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=(7-xOffset); x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1334,7 +1518,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=7; x>(7-xOffset); x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1355,7 +1539,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=7; x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}  
@@ -1372,7 +1556,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=(7-xOffset); x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1387,7 +1571,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 				for (auto x=7; x>(7-xOffset); x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 			}
@@ -1395,7 +1579,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipX(uint8_t tileId, uint8_t xPo
 	}	
 }
 
-void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
  
 	int sourceTile = (tileId * 64);
 	int sourcePixel = 0;
@@ -1406,6 +1590,33 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 	int destPixel;
 	int destPixelCount;
 	int destPixelStart;
+
+	// Point tileBankPtr to the specified tileBank
+
+	uint8_t * tileBankPtr;				
+
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			tileBankPtr = tileBank0Ptr;
+		} break;
+
+		case 1: {				// Tile Bank 1
+			tileBankPtr = tileBank1Ptr;
+		} break;
+
+		case 2: {				// Tile Bank 2
+			tileBankPtr = tileBank2Ptr;
+		} break;
+
+		case 3: {				// Tile Bank 3
+			tileBankPtr = tileBank3Ptr;
+		} break;
+
+		default: {
+			debug_log("writeTileLayerToBufferFlipY: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
+		}
+	}
 	
 	if (yPos > 0 && yPos < tileLayerHeight) {
 
@@ -1419,7 +1630,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=0; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1438,7 +1649,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=xOffset; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1455,7 +1666,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=0; x<xOffset; x++) {
 					sourcePixel = sourceTile + (y * 8) + destPixelCount;
 					destPixel = destPixelStart + x;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1479,7 +1690,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=0; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1498,7 +1709,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=xOffset; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1515,7 +1726,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=0; x<xOffset; x++) {
 					sourcePixel = sourceTile + (y * 8) + destPixelCount;
 					destPixel = destPixelStart + x;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1537,7 +1748,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=0; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1556,7 +1767,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=xOffset; x<8; x++) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1573,7 +1784,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 				for (auto x=0; x<xOffset; x++) {
 					sourcePixel = sourceTile + (y * 8) + destPixelCount;
 					destPixel = destPixelStart + x;
-					tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1583,7 +1794,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipY(uint8_t tileId, uint8_t xPo
 	}
 }
 
-void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileBankNum, uint8_t tileId, uint8_t xPos, uint8_t xOffset, uint8_t yPos, uint8_t yOffset, uint8_t * tileBuffer, uint8_t tileLayerHeight, uint8_t tileLayerWidth) {
  
 	int sourceTile = (tileId * 64);	
 	int sourcePixel = 0;
@@ -1594,6 +1805,33 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 	int destPixel;
 	int destPixelCount = 0;
 	int destPixelStart;
+
+	// Point tileBankPtr to the specified tileBank
+
+	uint8_t * tileBankPtr;				
+
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			tileBankPtr = tileBank0Ptr;
+		} break;
+
+		case 1: {				// Tile Bank 1
+			tileBankPtr = tileBank1Ptr;
+		} break;
+
+		case 2: {				// Tile Bank 2
+			tileBankPtr = tileBank2Ptr;
+		} break;
+
+		case 3: {				// Tile Bank 3
+			tileBankPtr = tileBank3Ptr;
+		} break;
+
+		default: {
+			debug_log("writeTileToLayerBufferFlipXY: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
+		}
+	}
 
 	if (yPos > 0 && yPos < tileLayerHeight) {
 
@@ -1607,7 +1845,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=7; x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1626,7 +1864,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=(7-xOffset); x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1643,7 +1881,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=7; x>(7-xOffset); x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1667,7 +1905,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=7; x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1686,7 +1924,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=(7-xOffset); x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1703,7 +1941,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=7; x>(7-xOffset); x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1725,7 +1963,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=7; x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1744,7 +1982,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=(7-xOffset); x>=0; x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1761,7 +1999,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 				for (auto x=7; x>(7-xOffset); x--) {
 					sourcePixel = sourceTile + (y * 8) + x;
 					destPixel = destPixelStart + destPixelCount;
-					tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+					tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 					destPixelCount++;
 				}
 
@@ -1774,7 +2012,7 @@ void VDUStreamProcessor::writeTileToLayerBufferFlipXY(uint8_t tileId, uint8_t xP
 
 
 
-void VDUStreamProcessor::writeTileToBuffer(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToBuffer(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
 
 	int destStartPos;
 	int destRowStart;
@@ -1784,6 +2022,34 @@ void VDUStreamProcessor::writeTileToBuffer(uint8_t tileId, uint8_t tileCount, ui
 	// Read 64 bytes from the data bank and write to the tile buffer
 
 	int sourcePixel = tileId * 64;
+
+
+	// Point tileBankPtr to the specified tileBank
+
+	uint8_t * tileBankPtr;
+
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			tileBankPtr = tileBank0Ptr;
+		} break;
+
+		case 1: {				// Tile Bank 1
+			tileBankPtr = tileBank1Ptr;
+		} break;
+
+		case 2: {				// Tile Bank 2
+			tileBankPtr = tileBank2Ptr;
+		} break;
+
+		case 3: {				// Tile Bank 3
+			tileBankPtr = tileBank3Ptr;
+		} break;
+
+		default: {
+			debug_log("writeTileToBuffer: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
+		}
+	}
 
 	// Handle the first column on screen which may only be partially drawn depending on the xOffset value
 	// This is also called by vdu_sys_layers_tilebank_draw() when drawing a single tile.
@@ -1802,7 +2068,7 @@ void VDUStreamProcessor::writeTileToBuffer(uint8_t tileId, uint8_t tileCount, ui
 
 				destPixel = destRowStart + x - xOffset;
 
-				tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 
 				sourcePixel++;
 			}
@@ -1825,7 +2091,7 @@ void VDUStreamProcessor::writeTileToBuffer(uint8_t tileId, uint8_t tileCount, ui
 
 				destPixel = destRowStart + x;
 
-				tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 
 				sourcePixel++;
 			}
@@ -1846,7 +2112,7 @@ void VDUStreamProcessor::writeTileToBuffer(uint8_t tileId, uint8_t tileCount, ui
 
 				destPixel = destRowStart + x;
 
-				tileBuffer[destPixel] = tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel] = tileBankPtr[sourcePixel];
 
 				sourcePixel++;
 			}
@@ -1856,7 +2122,7 @@ void VDUStreamProcessor::writeTileToBuffer(uint8_t tileId, uint8_t tileCount, ui
 	}
 }
 
-void VDUStreamProcessor::writeTileToBufferFlipX(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToBufferFlipX(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
 
 	int destStartPos;
 	int destRowStart;
@@ -1865,6 +2131,33 @@ void VDUStreamProcessor::writeTileToBufferFlipX(uint8_t tileId, uint8_t tileCoun
 
 	int sourceTile = tileId * 64;		// The start of the specified tile Id
 	int sourcePixel = 0;
+
+	// Point tileBankPtr to the specified tileBank QWERTY
+
+	uint8_t * tileBankPtr;				
+
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			tileBankPtr = tileBank0Ptr;
+		} break;
+
+		case 1: {				// Tile Bank 1
+			tileBankPtr = tileBank1Ptr;
+		} break;
+
+		case 2: {				// Tile Bank 2
+			tileBankPtr = tileBank2Ptr;
+		} break;
+
+		case 3: {				// Tile Bank 3
+			tileBankPtr = tileBank3Ptr;
+		} break;
+
+		default: {
+			debug_log("writeTileToBufferFlipX: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
+		}
+	}
 
 	// Handle the first column on screen which may only be partially drawn depending on the xOffset value.
 	// This is also called by vdu_sys_layers_tilebank_draw() when drawing a single tile.
@@ -1881,7 +2174,7 @@ void VDUStreamProcessor::writeTileToBufferFlipX(uint8_t tileId, uint8_t tileCoun
 
 			for (auto x=(7-xOffset); x>=0; x--) {		
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
@@ -1903,7 +2196,7 @@ void VDUStreamProcessor::writeTileToBufferFlipX(uint8_t tileId, uint8_t tileCoun
 
 			for (auto x=7; x>=0; x--) {		
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 		}
@@ -1923,7 +2216,7 @@ void VDUStreamProcessor::writeTileToBufferFlipX(uint8_t tileId, uint8_t tileCoun
 
 			for (auto x=7; x>(7-xOffset); x--) {		
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
@@ -1932,7 +2225,7 @@ void VDUStreamProcessor::writeTileToBufferFlipX(uint8_t tileId, uint8_t tileCoun
 	}		
 }
 
-void VDUStreamProcessor::writeTileToBufferFlipY(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToBufferFlipY(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
 
 	int destStartPos;		// Position in buffer the current tile needs to be written
 	int destRowStart;
@@ -1942,6 +2235,33 @@ void VDUStreamProcessor::writeTileToBufferFlipY(uint8_t tileId, uint8_t tileCoun
 	int sourceTile = tileId * 64;		// The start of the specified tile Id
 	int sourcePixel = 0;
 	int destRowCount = 0;
+
+	// Point tileBankPtr to the specified tileBank QWERTY
+
+	uint8_t * tileBankPtr;				
+
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			tileBankPtr = tileBank0Ptr;
+		} break;
+
+		case 1: {				// Tile Bank 1
+			tileBankPtr = tileBank1Ptr;
+		} break;
+
+		case 2: {				// Tile Bank 2
+			tileBankPtr = tileBank2Ptr;
+		} break;
+
+		case 3: {				// Tile Bank 3
+			tileBankPtr = tileBank3Ptr;
+		} break;
+
+		default: {
+			debug_log("writeTileToBufferFlipY: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
+		}
+	}
 
 	// Handle the first column on screen which may only be partially drawn depending on the xOffset value.
 	// This is also called by vdu_sys_layers_tilebank_draw() when drawing a single tile.
@@ -1958,7 +2278,7 @@ void VDUStreamProcessor::writeTileToBufferFlipY(uint8_t tileId, uint8_t tileCoun
 
 			for (auto x=xOffset; x<8; x++) {
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
@@ -1981,7 +2301,7 @@ void VDUStreamProcessor::writeTileToBufferFlipY(uint8_t tileId, uint8_t tileCoun
 
 			for (auto x=0; x<8; x++) {
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
@@ -2003,7 +2323,7 @@ void VDUStreamProcessor::writeTileToBufferFlipY(uint8_t tileId, uint8_t tileCoun
 
 			for (auto x=0; x<xOffset; x++) {
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
@@ -2013,7 +2333,7 @@ void VDUStreamProcessor::writeTileToBufferFlipY(uint8_t tileId, uint8_t tileCoun
 	}
 }
 
-void VDUStreamProcessor::writeTileToBufferFlipXY(uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
+void VDUStreamProcessor::writeTileToBufferFlipXY(uint8_t tileBankNum, uint8_t tileId, uint8_t tileCount, uint8_t xOffset, uint8_t tileBuffer[], uint8_t tileLayerWidth) {
 
 	int destStartPos; 		// Position in buffer the current tile needs to be written
 	int destRowStart;
@@ -2023,6 +2343,34 @@ void VDUStreamProcessor::writeTileToBufferFlipXY(uint8_t tileId, uint8_t tileCou
 	int sourceTile = tileId * 64;		// The start of the specified tile Id
 	int sourcePixel = 0;
 	int destRowCount = 0;
+
+	// Point tileBankPtr to the specified tileBank QWERTY
+
+	uint8_t * tileBankPtr;				
+
+	switch (tileBankNum) {
+		case 0: {				// Tile Bank 0
+			tileBankPtr = tileBank0Ptr;
+		} break;
+
+		case 1: {				// Tile Bank 1
+			tileBankPtr = tileBank1Ptr;
+		} break;
+
+		case 2: {				// Tile Bank 2
+			tileBankPtr = tileBank2Ptr;
+		} break;
+
+		case 3: {				// Tile Bank 3
+			tileBankPtr = tileBank3Ptr;
+		} break;
+
+		default: {
+			debug_log("writeTileToBufferFlipXY: Invalid tilebank %d specified.\r\n",tileBankNum);
+			return;
+		}
+	}
+
 
 	// Handle the first column on screen which may only be partially drawn depending on the xOffset value.
 	// This is also called by vdu_sys_layers_tilebank_draw() when drawing a single tile.
@@ -2039,7 +2387,7 @@ void VDUStreamProcessor::writeTileToBufferFlipXY(uint8_t tileId, uint8_t tileCou
 
 			for (auto x=(7-xOffset); x>=0; x--) {
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
@@ -2062,7 +2410,7 @@ void VDUStreamProcessor::writeTileToBufferFlipXY(uint8_t tileId, uint8_t tileCou
 
 			for (auto x=7; x>=0; x--) {
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
@@ -2084,7 +2432,7 @@ void VDUStreamProcessor::writeTileToBufferFlipXY(uint8_t tileId, uint8_t tileCou
 
 			for (auto x=7; x>(7-xOffset); x--) {
 				sourcePixel = sourceTile + (y * 8) + x;
-				tileBuffer[destPixel]=tileBank0Ptr[sourcePixel];
+				tileBuffer[destPixel]=tileBankPtr[sourcePixel];
 				destPixel++;
 			}
 
