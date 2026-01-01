@@ -381,9 +381,10 @@ void VDUStreamProcessor::sendGeneralPoll() {
 		debug_log("sendGeneralPoll: Timeout\n\r");
 		return;
 	}
+	setVDPVariable(VDPVAR_GENERALPOLL_BYTE, b);
 	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_GP);
 	uint8_t packet[] = {
-		(uint8_t) (b & 0xFF),
+		(uint8_t) (getVDPVariable(VDPVAR_GENERALPOLL_BYTE) & 0xFF),
 	};
 	send_packet(PACKET_GP, sizeof packet, packet);
 	initialised = true;
@@ -405,6 +406,8 @@ void VDUStreamProcessor::sendCursorPosition() {
 	uint8_t x, y;
 
 	bufferCallCallbacks(CALLBACK_SENDING_VDPP | PACKET_CURSOR);
+	// NB whilst we're not fetching variables for x and y, changing the cursor position
+	// via VDP variables in a callback would still affect the output of this function
 	context->getCursorTextPosition(&x, &y);
 	
 	uint8_t packet[] = { x, y };

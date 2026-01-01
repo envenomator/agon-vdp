@@ -22,6 +22,8 @@ using EventQueue = ThreadSafeVariantDeque<KeyboardEvent, MouseEvent>;
 EventQueue eventQueue;
 
 extern uint16_t getVDPVariable(uint16_t flag);
+extern void setVDPVariable(uint16_t flag, uint16_t value);
+extern void clearVDPVariable(uint16_t flag);
 
 class VDUStreamProcessor {
 	private:
@@ -505,6 +507,12 @@ bool VDUStreamProcessor::readFloatArguments(float *values, int count, bool useBu
 // Send a packet of data to the MOS
 //
 void VDUStreamProcessor::send_packet(uint8_t code, uint16_t len, uint8_t data[]) {
+	if (isVDPVariableSet(VDPVAR_VDPP_SUPPRESSNEXT)) {
+		// Skip sending this packet
+		clearVDPVariable(VDPVAR_VDPP_SUPPRESSNEXT);
+		debug_log("send_packet: Skipping packet 0x%02X\n\r", code);
+		return;
+	}
 	writeByte(code + 0x80);
 	writeByte(len);
 	for (int i = 0; i < len; i++) {
