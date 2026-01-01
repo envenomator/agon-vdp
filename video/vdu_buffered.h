@@ -1741,7 +1741,7 @@ void VDUStreamProcessor::bufferAffineTransform(uint16_t bufferId, uint8_t comman
 				return;
 			}
 			for (int i = 0; i < dimensions; i++) {
-				transform[i * size.columns + (i + 1)] = shearXY[i];
+				transform[i * size.columns + ((dimensions - 1) - i)] = shearXY[i];
 			}
 		}	break;
 		case AFFINE_SKEW:
@@ -1754,7 +1754,7 @@ void VDUStreamProcessor::bufferAffineTransform(uint16_t bufferId, uint8_t comman
 				return;
 			}
 			for (int i = 0; i < dimensions; i++) {
-				transform[i * size.columns + (i + 1)] = tanf(conversion * skewXY[i]);
+				transform[i * size.columns + ((dimensions - 1) - i)] = tanf(conversion * skewXY[i]);
 			}
 		}	break;
 		case AFFINE_TRANSFORM: {
