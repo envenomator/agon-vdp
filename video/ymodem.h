@@ -748,6 +748,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
   char *ptr;
   size_t amount = 0;
 
+  uart_flush();
   send_reqcrc();
 
   while(!session_done && !ymodem_session_aborted) {
