@@ -579,7 +579,7 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
 
   uart_flush();
   if (!session.open()) return;
-  if (!session.readFiles()) { session.close("\r\n"); return; }
+  if (!session.readFiles()) { session.close("File Error\r\n"); return; }
 
   printFmt("Waiting for receiver - VDP:%d 8N1 (YMODEM-1K)", SERIALBAUDRATE);
 
@@ -725,30 +725,20 @@ void VDUStreamProcessor::vdu_sys_ymodem_send(void) {
 
 void VDUStreamProcessor::vdu_sys_ymodem_receive(void) {
   MOS_YmodemSession session(this);
-  bool session_done;
-  bool receiving_data;
-  size_t errors,timeout_counter;
-  size_t offset,write_len;
-  uint8_t blocknumber;
+  bool session_done = false;
+  bool receiving_data = false;
+  size_t errors = 0,timeout_counter = 0;
+  size_t offset = 0,write_len;
+  uint8_t blocknumber = 0;
   uint8_t cancel_counter;
   ymodem_block_t block;
 
-  printFmt("Receiving data - VDP:%d 8N1 (YMODEM-1K)\r\n\r\n", SERIALBAUDRATE);
-
-  errors = 0;
-  timeout_counter = 0;
   ymodem_session_aborted = false;
-  session_done = false;
-  receiving_data = false;
-  blocknumber = 0;
-  offset = 0;
 
   if(!session.open()) return;
 
-  char *ptr;
-  size_t amount = 0;
-
   uart_flush();
+  printFmt("Receiving data - VDP:%d 8N1 (YMODEM-1K)\r\n\r\n", SERIALBAUDRATE);
   send_reqcrc();
 
   while(!session_done && !ymodem_session_aborted) {
